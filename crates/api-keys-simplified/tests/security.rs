@@ -55,7 +55,7 @@ fn test_collision_resistance() {
     let mut keys = HashSet::new();
     let count = 1000;
 
-    let generator = ApiKeyGenerator::init_default_config("test").unwrap();
+    let generator = ApiKeyGenerator::init_default_config("text").unwrap();
     for _ in 0..count {
         let key = generator.generate(Environment::test()).unwrap();
         // Use .as_ref() to get actual key string, not the redacted Display output
@@ -88,11 +88,11 @@ fn test_argon2_phc_format() {
     let hash = key.hash();
 
     // Argon2 PHC format starts with $argon2id$
-    assert!(hash.starts_with("$argon2id$"));
-    assert!(hash.contains("$v=19$"));
-    assert!(hash.contains("$m="));
-    assert!(hash.contains(",t="));
-    assert!(hash.contains(",p="));
+    assert!(hash.as_ref().starts_with("$argon2id$"));
+    assert!(hash.as_ref().contains("$v=19$"));
+    assert!(hash.as_ref().contains("$m="));
+    assert!(hash.as_ref().contains(",t="));
+    assert!(hash.as_ref().contains(",p="));
 }
 
 #[test]

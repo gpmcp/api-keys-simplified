@@ -4,6 +4,7 @@
 //! preventing sensitive data from lingering in memory after use.
 
 use std::fmt;
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A secure string that automatically zeros its memory on drop.
@@ -53,6 +54,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// ```
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecureString(String);
+
+impl PartialEq for SecureString {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
+    }
+}
 
 impl SecureString {
     /// Creates a new SecureString from a String.

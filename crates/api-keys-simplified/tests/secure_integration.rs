@@ -42,7 +42,7 @@ mod secure_integration_tests {
 
         // Create another key with the same data for testing
         let key_str = api_key.key().as_ref().to_string();
-        let hash_str = api_key.hash().to_string();
+        let hash_str = api_key.hash().as_ref().to_string();
 
         // Create a new ApiKey instance with the same key
         let another_key = ApiKey::new(SecureString::from(key_str));
@@ -88,7 +88,7 @@ mod secure_integration_tests {
         let generator = ApiKeyGenerator::init_default_config("api").unwrap();
         let key1 = generator.generate(Environment::production()).unwrap();
         let key_str = key1.key().as_ref().to_string();
-        let hash_str = key1.hash().to_string();
+        let hash_str = key1.hash().as_ref().to_string();
 
         // Drop the original - memory is zeroed automatically
         drop(key1);

@@ -20,7 +20,7 @@ pub struct ApiKeyGenerator {
 
 // FIXME: Need better naming
 #[derive(Debug)]
-pub struct Hashed(String);
+pub struct Hashed(SecureString);
 #[derive(Debug)]
 pub struct UnHashed;
 
@@ -133,7 +133,7 @@ impl ApiKey<UnHashed> {
 }
 
 impl ApiKey<Hashed> {
-    pub fn hash(&self) -> &str {
+    pub fn hash(&self) -> &SecureString {
         &self.hash.0
     }
 }
@@ -148,7 +148,7 @@ mod tests {
         let api_key = generator.generate(Environment::production()).unwrap();
 
         let key_str = api_key.key();
-        let hash_str = api_key.hash();
+        let hash_str = api_key.hash().as_ref();
 
         assert!(key_str.as_ref().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));

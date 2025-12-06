@@ -65,8 +65,8 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&key).unwrap();
 
-        assert!(KeyValidator::verify(key.as_ref(), &hash).unwrap());
-        assert!(!KeyValidator::verify("wrong_key", &hash).unwrap());
+        assert!(KeyValidator::verify(key.as_ref(), hash.as_ref()).unwrap());
+        assert!(!KeyValidator::verify("wrong_key", hash.as_ref()).unwrap());
     }
 
     #[test]
@@ -85,7 +85,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
-        let result = KeyValidator::verify(&oversized_key, &hash);
+        let result = KeyValidator::verify(&oversized_key, hash.as_ref());
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
     }
@@ -107,12 +107,12 @@ mod tests {
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
-        let result = KeyValidator::verify(&max_key, &hash);
+        let result = KeyValidator::verify(&max_key, hash.as_ref());
         assert!(result.is_ok()); // Should not error on length check
 
         // Test just over boundary (513 chars - should fail)
         let over_max_key = "a".repeat(513);
-        let result = KeyValidator::verify(&over_max_key, &hash);
+        let result = KeyValidator::verify(&over_max_key, hash.as_ref());
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
     }
@@ -123,7 +123,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let valid_hash = hasher.hash(&valid_key).unwrap();
 
-        let result1 = KeyValidator::verify("wrong_key", &valid_hash);
+        let result1 = KeyValidator::verify("wrong_key", valid_hash.as_ref());
         assert!(result1.is_ok());
         assert!(!result1.unwrap());
 

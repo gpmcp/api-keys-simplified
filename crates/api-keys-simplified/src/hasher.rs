@@ -18,7 +18,7 @@ impl KeyHasher {
     pub fn new(config: HashConfig) -> Self {
         Self { config }
     }
-    pub fn hash(&self, key: &SecureString) -> Result<String> {
+    pub fn hash(&self, key: &SecureString) -> Result<SecureString> {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 16];
         getrandom::fill(&mut salt_bytes)
@@ -41,7 +41,7 @@ impl KeyHasher {
             .hash_password(key.as_ref().as_bytes(), &salt)
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
-        Ok(hash.to_string())
+        Ok(SecureString::new(hash.to_string()))
     }
 }
 
@@ -58,8 +58,8 @@ mod tests {
         let hash1 = hasher.hash(&key).unwrap();
         let hash2 = hasher.hash(&key).unwrap();
 
-        assert_ne!(hash1, hash2); // Different salts
-        assert!(hash1.starts_with("$argon2id$"));
+        assert_ne!(hash1.as_ref(), hash2.as_ref()); // Different salts
+        assert!(hash1.as_ref().starts_with("$argon2id$"));
     }
 
     #[test]
