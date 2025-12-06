@@ -14,15 +14,18 @@ const MAX_PARTS: usize = 20; // Generous limit for complex prefixes
 
 const CHECKSUM_SEPARATOR: char = '.';
 
-pub struct KeyGenerator;
+#[derive(Clone)]
+pub struct KeyGenerator {
+    prefix: KeyPrefix,
+    config: KeyConfig,
+}
 
 impl KeyGenerator {
-    pub fn generate(
-        prefix: KeyPrefix,
-        environment: Environment,
-        config: &KeyConfig,
-    ) -> Result<SecureString> {
-        let mut random_bytes = vec![0u8; config.entropy_bytes];
+    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> KeyGenerator {
+        Self { prefix, config }
+    }
+    pub fn generate(&self, environment: Environment) -> Result<SecureString> {
+        let mut random_bytes = vec![0u8; *self.config.entropy_bytes()];
         getrandom::fill(&mut random_bytes).map_err(|e| {
             OperationError::Generation(format!("Failed to get random bytes: {}", e))
         })?;
@@ -33,11 +36,11 @@ impl KeyGenerator {
 
         // Format: prefix{sep}environment{sep}base64data[.checksum]
         // Using configured separator
-        let sep: &'static str = config.separator.into();
+        let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
-        let key = format!("{}{}{}{}{}", prefix.as_str(), sep, env, sep, encoded);
+        let key = format!("{}{}{}{}{}", self.prefix.as_str(), sep, env, sep, encoded);
 
-        if config.include_checksum {
+        if *self.config.include_checksum() {
             let checksum = Self::compute_checksum(&key);
             // Use . as separator for checksum (always dot, regardless of key separator)
             Ok(SecureString::new(format!(
@@ -218,7 +221,8 @@ mod tests {
         let env = Environment::Production;
         let config = KeyConfig::default();
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
         assert!(key.as_ref().starts_with("sk-live-"));
 
         // Verify key contains checksum separated by dot
@@ -268,7 +272,8 @@ mod tests {
         let env = Environment::Test;
         let config = KeyConfig::default().with_checksum(true);
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
 
         // Verify checksum is separated by '.'
         assert!(
@@ -347,10 +352,12 @@ mod tests {
         let env = Environment::Development;
 
         let config16 = KeyConfig::new().with_entropy(16).unwrap();
-        let key16 = KeyGenerator::generate(prefix.clone(), env.clone(), &config16).unwrap();
+        let generator16 = KeyGenerator::new(prefix.clone(), config16);
+        let key16 = generator16.generate(env.clone()).unwrap();
 
         let config32 = KeyConfig::new().with_entropy(32).unwrap();
-        let key32 = KeyGenerator::generate(prefix, env, &config32).unwrap();
+        let generator32 = KeyGenerator::new(prefix, config32);
+        let key32 = generator32.generate(env).unwrap();
 
         assert!(key32.len() > key16.len());
     }
@@ -361,7 +368,8 @@ mod tests {
         let env = Environment::Production;
         let config = KeyConfig::default().with_checksum(true);
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
 
         // With dash separator: test-live-data.checksum
         // Should have exactly 1 dot (for checksum separator only)
@@ -401,7 +409,8 @@ mod tests {
 
         // Test with Slash
         let config_slash = KeyConfig::default().with_separator(Separator::Slash);
-        let key_slash = KeyGenerator::generate(prefix.clone(), env.clone(), &config_slash).unwrap();
+        let generator_slash = KeyGenerator::new(prefix.clone(), config_slash);
+        let key_slash = generator_slash.generate(env.clone()).unwrap();
         assert!(key_slash.as_ref().contains('/'));
         assert!(!key_slash.as_ref().contains('~'));
         let (p, e) = KeyGenerator::parse_key(&key_slash, Separator::Slash).unwrap();
@@ -410,7 +419,8 @@ mod tests {
 
         // Test with Dash (default)
         let config_dash = KeyConfig::default().with_separator(Separator::Dash);
-        let key_dash = KeyGenerator::generate(prefix.clone(), env.clone(), &config_dash).unwrap();
+        let generator_dash = KeyGenerator::new(prefix.clone(), config_dash);
+        let key_dash = generator_dash.generate(env.clone()).unwrap();
         assert!(key_dash.as_ref().contains('-'));
         // Checksum is always separated by dot
         let parts: Vec<&str> = key_dash.as_ref().rsplitn(2, '.').collect();
@@ -424,7 +434,8 @@ mod tests {
         let config_tilde = KeyConfig::default()
             .with_separator(Separator::Tilde)
             .with_checksum(false);
-        let key_tilde = KeyGenerator::generate(prefix, env, &config_tilde).unwrap();
+        let generator_tilde = KeyGenerator::new(prefix, config_tilde);
+        let key_tilde = generator_tilde.generate(env).unwrap();
         assert!(key_tilde.as_ref().contains('~'));
         let (p, e) = KeyGenerator::parse_key(&key_tilde, Separator::Tilde).unwrap();
         assert_eq!(p, "sk");

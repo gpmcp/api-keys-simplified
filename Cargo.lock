@@ -15,6 +15,7 @@ dependencies = [
  "argon2",
  "base64",
  "crc32fast",
+ "derive-getters",
  "getrandom",
  "lazy_static",
  "password-hash",
@@ -155,6 +156,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
 dependencies = [
  "darling_core",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derive-getters"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74ef43543e701c01ad77d3a5922755c6a1d71b22d942cb8042be4994b380caff"
+dependencies = [
+ "proc-macro2",
  "quote",
  "syn",
 ]

@@ -43,6 +43,8 @@ impl KeyValidator {
 
         let result = Argon2::default()
             .verify_password(provided_key.as_bytes(), &parsed_hash)
+            // Not sure if we should throw an error..
+            // For now, we'll just check if verification succeeded.
             .is_ok();
 
         Ok(result)
@@ -57,7 +59,8 @@ mod tests {
     #[test]
     fn test_verification() {
         let key = SecureString::new("sk_live_testkey123".to_string());
-        let hash = KeyHasher::hash(&key, &HashConfig::default()).unwrap();
+        let hasher = KeyHasher::new(HashConfig::default());
+        let hash = hasher.hash(&key).unwrap();
 
         assert!(KeyValidator::verify(key.as_ref(), &hash).unwrap());
         assert!(!KeyValidator::verify("wrong_key", &hash).unwrap());
@@ -76,7 +79,8 @@ mod tests {
     fn test_oversized_key_rejection() {
         let oversized_key = "a".repeat(513); // Exceeds MAX_KEY_LENGTH
         let valid_key = SecureString::new("valid_key".to_string());
-        let hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
+        let hasher = KeyHasher::new(HashConfig::default());
+        let hash = hasher.hash(&valid_key).unwrap();
 
         let result = KeyValidator::verify(&oversized_key, &hash);
         assert!(result.is_err());
@@ -95,7 +99,8 @@ mod tests {
     #[test]
     fn test_boundary_key_length() {
         let valid_key = SecureString::new("valid_key".to_string());
-        let hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
+        let hasher = KeyHasher::new(HashConfig::default());
+        let hash = hasher.hash(&valid_key).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
@@ -112,7 +117,8 @@ mod tests {
     #[test]
     fn test_timing_oracle_protection() {
         let valid_key = SecureString::new("sk_live_testkey123".to_string());
-        let valid_hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
+        let hasher = KeyHasher::new(HashConfig::default());
+        let valid_hash = hasher.hash(&valid_key).unwrap();
 
         let result1 = KeyValidator::verify("wrong_key", &valid_hash);
         assert!(result1.is_ok());

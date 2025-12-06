@@ -37,8 +37,9 @@ fn calculate_stats(timings: &[Duration]) -> TimingStats {
 #[test]
 fn test_checksum_constant_time() {
     let config = KeyConfig::default().with_checksum(true);
-    let key = ApiKey::generate("test", Environment::production(), config).unwrap();
-    let key_str = key.key().as_ref();
+    let generator = ApiKeyGenerator::init("test", config, HashConfig::default()).unwrap();
+    let api_key = generator.generate(Environment::production()).unwrap();
+    let key_str = api_key.key().as_ref();
 
     // Extract base key and checksum
     // With dot separator: test.live.data.checksum (4 parts)
@@ -69,9 +70,10 @@ fn test_checksum_constant_time() {
     for _ in 0..iterations {
         for (i, (checksum, _expected, _desc)) in test_cases.iter().enumerate() {
             let test_key = format!("{}.{}", base_key, checksum);
+            let test_api_key = ApiKey::new(SecureString::from(test_key));
 
             let start = Instant::now();
-            let _ = ApiKey::verify_checksum(&test_key);
+            let _ = test_api_key.verify_checksum();
             let elapsed = start.elapsed();
 
             timings[i].push(elapsed);

@@ -37,8 +37,10 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 ///
 /// ```
 /// use api_keys_simplified::SecureString;
-///
-/// let sensitive = SecureString::from("my_secret_api_key");
+/// // Note that unlike this example, never use string literal
+/// // to convert to SecureString. Dropping SecureString will NOT
+/// // zeroize the string literal in memory.
+/// let sensitive = SecureString::from("my_secret_api_key".to_string());
 ///
 /// // Explicit access (good - auditable)
 /// let key = sensitive.as_ref();
@@ -49,7 +51,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 ///
 /// // Memory is automatically zeroed when `sensitive` goes out of scope
 /// ```
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecureString(String);
 
 impl SecureString {
@@ -75,12 +77,6 @@ impl SecureString {
 impl From<String> for SecureString {
     fn from(s: String) -> Self {
         Self::new(s)
-    }
-}
-
-impl From<&str> for SecureString {
-    fn from(s: &str) -> Self {
-        Self::new(s.to_string())
     }
 }
 
@@ -110,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_secure_string_creation() {
-        let secret = SecureString::from("my_secret");
+        let secret = SecureString::from("my_secret".to_string());
         assert_eq!(secret.as_ref(), "my_secret");
         assert_eq!(secret.len(), 9);
         assert!(!secret.is_empty());
@@ -118,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_secure_string_redaction() {
-        let secret = SecureString::from("sensitive_data");
+        let secret = SecureString::from("sensitive_data".to_string());
 
         // Debug output should be redacted
         let debug_output = format!("{:?}", secret);
@@ -133,23 +129,14 @@ mod tests {
 
     #[test]
     fn test_secure_string_empty() {
-        let empty = SecureString::from("");
+        let empty = SecureString::from("".to_string());
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
     }
 
     #[test]
-    fn test_secure_string_clone() {
-        let secret1 = SecureString::from("original");
-        let secret2 = secret1.clone();
-
-        assert_eq!(secret1.as_ref(), "original");
-        assert_eq!(secret2.as_ref(), "original");
-    }
-
-    #[test]
     fn test_as_ref() {
-        let secret = SecureString::from("test");
+        let secret = SecureString::from("test".to_string());
         let reference: &str = secret.as_ref();
         assert_eq!(reference, "test");
     }

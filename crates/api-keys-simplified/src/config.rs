@@ -1,3 +1,4 @@
+use derive_getters::Getters;
 use crate::error::{ConfigError, Result};
 use lazy_static::lazy_static;
 use strum::{Display, EnumIter, EnumString};
@@ -44,7 +45,7 @@ impl Environment {
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(prefix: impl Into<String>, separator: &Separator) -> Result<Self> {
+    pub fn new(prefix: impl Into<String>, separator: &Separator) -> std::result::Result<Self, ConfigError> {
         let prefix = prefix.into();
         if prefix.is_empty() || prefix.len() > 20 {
             return Err(ConfigError::InvalidPrefixLength.into());
@@ -162,12 +163,11 @@ impl Default for HashConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters)]
 pub struct KeyConfig {
-    pub entropy_bytes: usize,
-    pub include_checksum: bool,
-    pub hash_config: HashConfig,
-    pub separator: Separator,
+    entropy_bytes: usize,
+    include_checksum: bool,
+    separator: Separator,
 }
 
 impl KeyConfig {
@@ -191,11 +191,6 @@ impl KeyConfig {
         self
     }
 
-    pub fn with_hash_config(mut self, hash_config: HashConfig) -> Self {
-        self.hash_config = hash_config;
-        self
-    }
-
     pub fn with_separator(mut self, separator: Separator) -> Self {
         self.separator = separator;
         self
@@ -205,7 +200,6 @@ impl KeyConfig {
         Self {
             entropy_bytes: 24,
             include_checksum: true,
-            hash_config: HashConfig::balanced(),
             separator: Separator::default(),
         }
     }
@@ -214,7 +208,6 @@ impl KeyConfig {
         Self {
             entropy_bytes: 32,
             include_checksum: true,
-            hash_config: HashConfig::high_security(),
             separator: Separator::default(),
         }
     }

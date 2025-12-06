@@ -21,6 +21,7 @@ zeroize.workspace = true
 crc32fast.workspace = true
 strum.workspace = true
 lazy_static.workspace = true
+derive-getters.workspace = true
 
 [features]
 default = []
