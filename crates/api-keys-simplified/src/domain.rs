@@ -39,7 +39,7 @@ impl ApiKey {
         let hash = KeyHasher::hash(&key, &config.hash_config)?;
 
         Ok(Self {
-            key: SecureString::from(key),
+            key: key,
             hash,
         })
     }

@@ -16,8 +16,7 @@ pub enum Environment {
 }
 
 lazy_static! {
-    static ref ENVIRONMENT_VARIANTS: Vec<Environment> =
-        Environment::iter().collect();
+    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
 }
 
 impl Environment {
@@ -76,22 +75,19 @@ impl Default for KeyPrefix {
 
 /// Separator character for API key components (prefix, environment and data).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(Default)]
 pub enum Separator {
     #[strum(serialize = "/")]
     Slash,
 
     #[strum(serialize = "-")]
+    #[default]
     Dash,
 
     #[strum(serialize = "~")]
     Tilde,
 }
 
-impl Default for Separator {
-    fn default() -> Self {
-        Separator::Dash
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct HashConfig {

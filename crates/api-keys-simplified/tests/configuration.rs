@@ -4,7 +4,7 @@ use api_keys_simplified::{ApiKey, Environment, HashConfig, KeyConfig};
 fn test_custom_entropy() {
     let config = KeyConfig::new().with_entropy(16).unwrap();
     let key = ApiKey::generate("sk", Environment::test(), config).unwrap();
-    
+
     assert!(key.key().len() > 10);
 }
 
@@ -12,7 +12,7 @@ fn test_custom_entropy() {
 fn test_with_checksum() {
     let config = KeyConfig::default().with_checksum(true);
     let key = ApiKey::generate("pk", Environment::production(), config).unwrap();
-    
+
     assert!(ApiKey::verify_checksum(key.key()).unwrap());
 }
 
@@ -20,18 +20,21 @@ fn test_with_checksum() {
 fn test_without_checksum() {
     let config = KeyConfig::default().with_checksum(false);
     let key = ApiKey::generate("pk", Environment::production(), config).unwrap();
-    
+
     // Environment "live" means production, Base64URL can contain underscores and hyphens
     // Key format with dash separator: pk-live-{base64url_data}
     // No checksum, so no dot at the end
     assert!(key.key().as_ref().starts_with("pk-live-"));
-    assert!(!key.key().as_ref().contains('.'), "Should not have checksum dot");
+    assert!(
+        !key.key().as_ref().contains('.'),
+        "Should not have checksum dot"
+    );
 }
 
 #[test]
 fn test_high_security_preset() {
     let key = ApiKey::generate_high_security("sk", Environment::production()).unwrap();
-    
+
     assert!(key.key().len() > 50); // Higher entropy = longer key
     assert!(ApiKey::verify(key.key(), key.hash()).unwrap());
 }
@@ -40,17 +43,17 @@ fn test_high_security_preset() {
 fn test_balanced_preset() {
     let key = ApiKey::generate_default("sk", Environment::production()).unwrap();
     let high = ApiKey::generate_high_security("sk", Environment::production()).unwrap();
-    
+
     assert!(key.key().len() < high.key().len());
 }
 
 #[test]
 fn test_custom_hash_config() {
     let hash_config = HashConfig::custom(8192, 1, 1).unwrap();
-    
+
     let config = KeyConfig::default().with_hash_config(hash_config);
     let key = ApiKey::generate("test", Environment::dev(), config).unwrap();
-    
+
     assert!(ApiKey::verify(key.key(), key.hash()).unwrap());
 }
 

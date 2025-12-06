@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 /// Error type for API key operations.
-/// 
+///
 /// # Security Note
 /// Error messages are intentionally generic to prevent information leakage.
 /// For debugging, use `{:?}` formatting which includes additional context.
@@ -16,18 +16,18 @@ pub enum Error {
     Config(#[from] ConfigError),
 
     /// Operation failed (intentionally vague for security)
-    /// 
+    ///
     /// This could be:
     /// - Key generation failure
     /// - Hashing failure
     /// - Verification failure
-    /// 
+    ///
     /// Use `{:?}` formatting to see details in logs.
     #[error("Operation failed")]
     OperationFailed(
         #[source]
         #[from]
-        OperationError
+        OperationError,
     ),
 }
 
@@ -77,13 +77,13 @@ mod tests {
 
     #[test]
     fn test_display_is_generic() {
-        let err = Error::OperationFailed(
-            OperationError::HashingFailed("detailed salt error".to_string())
-        );
-        
+        let err = Error::OperationFailed(OperationError::HashingFailed(
+            "detailed salt error".to_string(),
+        ));
+
         // Display is generic (safe for clients)
         assert_eq!(err.to_string(), "Operation failed");
-        
+
         // Debug contains details (for logging)
         let debug_str = format!("{:?}", err);
         assert!(debug_str.contains("HashingFailed"));
@@ -92,10 +92,10 @@ mod tests {
 
     #[test]
     fn test_error_chaining() {
-        let err = Error::OperationFailed(
-            OperationError::VerificationFailed("argon2 param error".to_string())
-        );
-        
+        let err = Error::OperationFailed(OperationError::VerificationFailed(
+            "argon2 param error".to_string(),
+        ));
+
         // Can access source for logging
         if let Error::OperationFailed(source) = err {
             assert!(source.to_string().contains("argon2"));
@@ -111,10 +111,16 @@ mod tests {
     #[test]
     fn test_config_errors_are_specific() {
         let err = Error::Config(ConfigError::EntropyTooLow);
-        assert_eq!(err.to_string(), "Entropy must be at least 16 bytes (128 bits)");
+        assert_eq!(
+            err.to_string(),
+            "Entropy must be at least 16 bytes (128 bits)"
+        );
 
         let err = Error::Config(ConfigError::InvalidPrefixLength);
-        assert_eq!(err.to_string(), "Prefix must be between 1 and 10 characters");
+        assert_eq!(
+            err.to_string(),
+            "Prefix must be between 1 and 10 characters"
+        );
     }
 
     #[test]
