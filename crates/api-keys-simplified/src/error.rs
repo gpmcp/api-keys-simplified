@@ -60,13 +60,13 @@ pub enum ConfigError {
 #[derive(Debug, Error)]
 pub enum OperationError {
     #[error("Key generation failed: {0}")]
-    GenerationFailed(String),
+    Generation(String),
 
     #[error("Hashing failed: {0}")]
-    HashingFailed(String),
+    Hashing(String),
 
     #[error("Verification failed: {0}")]
-    VerificationFailed(String),
+    Verification(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -77,10 +77,9 @@ mod tests {
 
     #[test]
     fn test_display_is_generic() {
-        let err = Error::OperationFailed(OperationError::HashingFailed(
+        let err = Error::OperationFailed(OperationError::Hashing(
             "detailed salt error".to_string(),
         ));
-
         // Display is generic (safe for clients)
         assert_eq!(err.to_string(), "Operation failed");
 
@@ -92,10 +91,9 @@ mod tests {
 
     #[test]
     fn test_error_chaining() {
-        let err = Error::OperationFailed(OperationError::VerificationFailed(
+        let err = Error::OperationFailed(OperationError::Verification(
             "argon2 param error".to_string(),
         ));
-
         // Can access source for logging
         if let Error::OperationFailed(source) = err {
             assert!(source.to_string().contains("argon2"));

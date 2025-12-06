@@ -24,7 +24,7 @@ impl KeyGenerator {
     ) -> Result<SecureString> {
         let mut random_bytes = vec![0u8; config.entropy_bytes];
         getrandom::fill(&mut random_bytes).map_err(|e| {
-            OperationError::GenerationFailed(format!("Failed to get random bytes: {}", e))
+            OperationError::Generation(format!("Failed to get random bytes: {}", e))
         })?;
 
         // Use standard URL-safe base64 encoding (no padding)

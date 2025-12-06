@@ -16,11 +16,11 @@ impl KeyHasher {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 16];
         getrandom::fill(&mut salt_bytes).map_err(|e| {
-            OperationError::HashingFailed(format!("Failed to generate salt: {}", e))
+            OperationError::Hashing(format!("Failed to generate salt: {}", e))
         })?;
 
         let salt = SaltString::encode_b64(&salt_bytes)
-            .map_err(|e| OperationError::HashingFailed(e.to_string()))?;
+            .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         let params = Params::new(
             config.memory_cost(),
@@ -28,13 +28,13 @@ impl KeyHasher {
             config.parallelism(),
             None,
         )
-        .map_err(|e| OperationError::HashingFailed(e.to_string()))?;
+        .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let hash = argon2
             .hash_password(key.as_ref().as_bytes(), &salt)
-            .map_err(|e| OperationError::HashingFailed(e.to_string()))?;
+            .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         Ok(hash.to_string())
     }
