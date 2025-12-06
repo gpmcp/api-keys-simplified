@@ -5,6 +5,7 @@ A secure Rust library for generating and validating API keys with built-in secur
 [![Crates.io](https://img.shields.io/crates/v/api-keys-simplified.svg)](https://crates.io/crates/api-keys-simplified)
 [![Documentation](https://docs.rs/api-keys-simplified/badge.svg)](https://docs.rs/api-keys-simplified)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/gpmcp/api-keys-simplified/graph/badge.svg?token=BUE7WRJ1FP)](https://codecov.io/gh/gpmcp/api-keys-simplified)
 
 ## Features
 

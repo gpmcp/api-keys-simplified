@@ -3,6 +3,9 @@ use lazy_static::lazy_static;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
 
+/// Deployment environment for API keys (dev/test/staging/live).
+/// Used to visually distinguish keys across different environments and prevent accidental misuse
+/// And allow users to set different Rate limits based on Environment.
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, Display, IntoStaticStr)]
 pub enum Environment {
     #[strum(serialize = "dev")]
