@@ -33,7 +33,7 @@ fn main() {
         )
         .add_step(Step::new("Install cargo-llvm-cov").run("cargo install cargo-llvm-cov || true"))
         .add_step(Step::new("Generate coverage").run(
-            "cargo +nightly llvm-cov --all-features --workspace --lcov --output-path lcov.info",
+            "cargo +nightly llvm-cov --release --all-features --workspace --lcov --output-path lcov.info",
         ))
         .add_step(
             Step::new("Upload Coverage to Codecov")

@@ -53,7 +53,7 @@ jobs:
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov || true
     - name: Generate coverage
-      run: cargo +nightly llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      run: cargo +nightly llvm-cov --release --all-features --workspace --lcov --output-path lcov.info
     - name: Upload Coverage to Codecov
       uses: Wandalen/wretry.action@v3
       with:
