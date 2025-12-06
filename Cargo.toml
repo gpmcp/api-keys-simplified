@@ -1,16 +1,7 @@
-[package]
-name = "api-keys-simplified"
-version = "0.1.0"
-edition = "2021"
-authors = ["Sandipsinh Rathod <sandip@ssdd.dev>"]
-readme = "README.md"
-license = "Apache-2.0"
-description = "Secure API key generation and validation library"
-repository = "https://github.com/gpmcp/api-keys-simplified"
-keywords = ["api", "security", "authentication", "keys", "crypto"]
-categories = ["authentication", "cryptography"]
+[workspace]
+members = ["crates/*"]
 
-[dependencies]
+[workspace.dependencies]
 argon2 = "0.5"
 password-hash = "0.5"
 subtle = "2.6"
@@ -21,7 +12,3 @@ zeroize = { version = "1.8", features = ["derive"] }
 crc32fast = "1.5.0"
 strum = { version = "0.27.2", features = ["derive"] }
 lazy_static = "1.5.0"
-
-[features]
-default = []
-expensive_tests = []

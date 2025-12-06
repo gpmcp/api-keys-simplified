@@ -1,0 +1,27 @@
+[package]
+name = "api-keys-simplified"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sandipsinh Rathod <sandip@ssdd.dev>"]
+readme = "README.md"
+license = "Apache-2.0"
+description = "Secure API key generation and validation library"
+repository = "https://github.com/gpmcp/api-keys-simplified"
+keywords = ["api", "security", "authentication", "keys", "crypto"]
+categories = ["authentication", "cryptography"]
+
+[dependencies]
+argon2.workspace = true
+password-hash.workspace = true
+subtle.workspace = true
+getrandom.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+crc32fast.workspace = true
+strum.workspace = true
+lazy_static.workspace = true
+
+[features]
+default = []
+expensive_tests = []

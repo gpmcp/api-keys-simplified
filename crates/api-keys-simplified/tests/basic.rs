@@ -52,14 +52,9 @@ fn test_key_uniqueness() {
 
 #[test]
 fn test_parse_key_components() {
-    let prefixes = [
-        "a",
-        "a_b",
-        "a_b_",
-    ];
+    let prefixes = ["a", "a_b", "a_b_"];
     for prefix in prefixes {
-        let key = ApiKey::generate_default(prefix, Environment::staging())
-            .unwrap();
+        let key = ApiKey::generate_default(prefix, Environment::staging()).unwrap();
         println!("{}", key.key().as_ref());
         let prefix_ans = ApiKey::parse_prefix(key.key(), Separator::default()).unwrap();
         let env = ApiKey::parse_environment(key.key(), Separator::default()).unwrap();

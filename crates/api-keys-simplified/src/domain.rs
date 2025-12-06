@@ -38,10 +38,7 @@ impl ApiKey {
         let key = KeyGenerator::generate(prefix, environment.into(), &config)?;
         let hash = KeyHasher::hash(&key, &config.hash_config)?;
 
-        Ok(Self {
-            key: SecureString::from(key),
-            hash,
-        })
+        Ok(Self { key, hash })
     }
 
     pub fn generate_default(
