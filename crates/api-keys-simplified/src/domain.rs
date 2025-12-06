@@ -52,10 +52,7 @@ impl ApiKeyGenerator {
         let prefix = KeyPrefix::new(prefix)?;
         let generator = KeyGenerator::new(prefix, config);
         let hasher = KeyHasher::new(hash_config);
-        Ok(Self {
-            generator,
-            hasher,
-        })
+        Ok(Self { generator, hasher })
     }
 
     pub fn init_default_config(
