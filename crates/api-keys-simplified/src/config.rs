@@ -94,7 +94,7 @@ pub enum Separator {
     Tilde,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters)]
 pub struct HashConfig {
     memory_cost: u32,
     time_cost: u32,
@@ -118,21 +118,6 @@ impl HashConfig {
             time_cost,
             parallelism,
         })
-    }
-
-    /// Returns the memory cost in KiB.
-    pub fn memory_cost(&self) -> u32 {
-        self.memory_cost
-    }
-
-    /// Returns the time cost (number of iterations).
-    pub fn time_cost(&self) -> u32 {
-        self.time_cost
-    }
-
-    /// Returns the parallelism degree.
-    pub fn parallelism(&self) -> u32 {
-        self.parallelism
     }
 
     /// Balanced preset for general production use.
