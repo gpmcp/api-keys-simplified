@@ -38,17 +38,35 @@ impl KeyGenerator {
         // Using configured separator
         let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
-        let key = format!("{}{}{}{}{}", self.prefix.as_str(), sep, env, sep, encoded);
+
+        // Critical: Always wrap it the key to SecureString
+        // What could go wrong?
+        // Creating plain text as a string and
+        // adding checksum to the key using
+        // format!("{key}{sep}{chksum}")
+        // will NOT zeroize the key in memory.
+        // Better approach is to either make changes
+        // in a mutable string and move it, or immediately
+        // move it to SecureString.
+        let key = SecureString::new(format!(
+            "{}{}{}{}{}",
+            self.prefix.as_str(),
+            sep,
+            env,
+            sep,
+            encoded
+        ));
 
         if *self.config.include_checksum() {
-            let checksum = Self::compute_checksum(&key);
+            let checksum = Self::compute_checksum(key.as_ref());
             // Use . as separator for checksum (always dot, regardless of key separator)
             Ok(SecureString::new(format!(
                 "{}{CHECKSUM_SEPARATOR}{}",
-                key, checksum
+                key.as_ref(),
+                checksum
             )))
         } else {
-            Ok(SecureString::new(key))
+            Ok(key)
         }
     }
 
@@ -217,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_key_generation() {
-        let prefix = KeyPrefix::new("sk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("sk").unwrap();
         let env = Environment::Production;
         let config = KeyConfig::default();
 
@@ -268,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_checksum_generation_with_dot_separator() {
-        let prefix = KeyPrefix::new("pk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("pk").unwrap();
         let env = Environment::Test;
         let config = KeyConfig::default().with_checksum(true);
 
@@ -348,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_entropy_variations() {
-        let prefix = KeyPrefix::new("api", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("api").unwrap();
         let env = Environment::Development;
 
         let config16 = KeyConfig::new().with_entropy(16).unwrap();
@@ -364,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_checksum_separator_is_dot() {
-        let prefix = KeyPrefix::new("test", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("text").unwrap();
         let env = Environment::Production;
         let config = KeyConfig::default().with_checksum(true);
 
@@ -393,7 +411,7 @@ mod tests {
         let data_part = key_parts.next().unwrap();
 
         // First part should be prefix
-        assert_eq!(prefix_part, "test");
+        assert_eq!(prefix_part, "text");
         // Second part should be environment
         assert_eq!(env_part, "live");
         // Third part is data
@@ -404,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_different_separators() {
-        let prefix = KeyPrefix::new("sk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("sk").unwrap();
         let env = Environment::Production;
 
         // Test with Slash

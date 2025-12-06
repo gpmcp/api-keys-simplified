@@ -28,9 +28,9 @@ impl KeyHasher {
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         let params = Params::new(
-            self.config.memory_cost(),
-            self.config.time_cost(),
-            self.config.parallelism(),
+            *self.config.memory_cost(),
+            *self.config.time_cost(),
+            *self.config.parallelism(),
             None,
         )
         .map_err(|e| OperationError::Hashing(e.to_string()))?;

@@ -45,10 +45,7 @@ impl Environment {
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(
-        prefix: impl Into<String>,
-        separator: &Separator,
-    ) -> std::result::Result<Self, ConfigError> {
+    pub fn new(prefix: impl Into<String>) -> std::result::Result<Self, ConfigError> {
         let prefix = prefix.into();
         if prefix.is_empty() || prefix.len() > 20 {
             return Err(ConfigError::InvalidPrefixLength);
@@ -59,11 +56,10 @@ impl KeyPrefix {
         {
             return Err(ConfigError::InvalidPrefixCharacters);
         }
-        let sep_string: &'static str = separator.into();
-        if let Some(invalid) = Environment::variants()
-            .iter()
-            .find(|v| prefix.contains(&format!("{sep_string}{v}{sep_string}")))
-        {
+        if let Some(invalid) = Environment::variants().iter().find(|v| {
+            let s: &'static str = (*v).into();
+            prefix.contains(s)
+        }) {
             return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
         Ok(Self(prefix))
@@ -71,12 +67,6 @@ impl KeyPrefix {
 
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl Default for KeyPrefix {
-    fn default() -> Self {
-        Self("key".to_string())
     }
 }
 
@@ -122,14 +112,16 @@ impl HashConfig {
 
     /// Balanced preset for general production use.
     ///
-    /// - Memory: 19 MB
-    /// - Time: 2 iterations
-    /// - Parallelism: 1 thread
-    /// - Verification time: ~50ms
+    /// - Memory: 46 MB
+    /// - Time: 1 iterations
+    /// - Parallelism: 1 threads
+    /// Default recommendation according to
+    /// [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
+    /// Refer the document for best practices at different memory cost.
     pub fn balanced() -> Self {
         Self {
-            memory_cost: 19_456,
-            time_cost: 2,
+            memory_cost: 47_104,
+            time_cost: 1,
             parallelism: 1,
         }
     }
@@ -137,13 +129,14 @@ impl HashConfig {
     /// High security preset for sensitive operations.
     ///
     /// - Memory: 64 MB
-    /// - Time: 3 iterations
+    /// - Time: 2 iterations
     /// - Parallelism: 4 threads
-    /// - Verification time: ~150ms
+    /// Higher limits then what's suggested in
+    /// [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
     pub fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
-            time_cost: 3,
+            time_cost: 2,
             parallelism: 4,
         }
     }
@@ -218,11 +211,10 @@ mod tests {
 
     #[test]
     fn test_prefix_validation() {
-        let sep = &Separator::default();
-        assert!(KeyPrefix::new("sk", sep).is_ok());
-        assert!(KeyPrefix::new("api_key", sep).is_ok());
-        assert!(KeyPrefix::new("", sep).is_err());
-        assert!(KeyPrefix::new("invalid-prefix", sep).is_err());
+        assert!(KeyPrefix::new("sk").is_ok());
+        assert!(KeyPrefix::new("api_key").is_ok());
+        assert!(KeyPrefix::new("").is_err());
+        assert!(KeyPrefix::new("invalid-prefix").is_err());
     }
 
     #[test]

@@ -15,9 +15,11 @@ impl KeyValidator {
     pub fn verify(provided_key: &str, stored_hash: &str) -> Result<bool> {
         // Input length validation to prevent DoS attacks
         if provided_key.len() > Self::MAX_KEY_LENGTH {
+            dummy_load();
             return Err(Error::InvalidFormat);
         }
         if stored_hash.len() > Self::MAX_HASH_LENGTH {
+            dummy_load();
             return Err(Error::InvalidFormat);
         }
 
@@ -26,21 +28,10 @@ impl KeyValidator {
         let parsed_hash = match PasswordHash::new(stored_hash) {
             Ok(h) => h,
             Err(_) => {
-                // SECURITY: Perform dummy Argon2 verification to match timing of real verification
-                // This prevents timing attacks that could distinguish between "invalid hash format"
-                // and "valid hash but wrong password" errors
-                static DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQxMjM0NTY3$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-                let dummy_password = b"dummy_password_for_timing";
-
-                if let Ok(dummy_parsed) = PasswordHash::new(DUMMY_HASH) {
-                    let _ = Argon2::default().verify_password(dummy_password, &dummy_parsed);
-                }
-
-                // Return false (not Ok error) to maintain consistent error handling
+                dummy_load();
                 return Ok(false);
             }
         };
-
         let result = Argon2::default()
             .verify_password(provided_key.as_bytes(), &parsed_hash)
             // Not sure if we should throw an error..
@@ -48,6 +39,18 @@ impl KeyValidator {
             .is_ok();
 
         Ok(result)
+    }
+}
+
+fn dummy_load() {
+    // SECURITY: Perform dummy Argon2 verification to match timing of real verification
+    // This prevents timing attacks that could distinguish between "invalid hash format"
+    // and "valid hash but wrong password" errors
+    static DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQxMjM0NTY3$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let dummy_password = b"dummy_password_for_timing";
+
+    if let Ok(dummy_parsed) = PasswordHash::new(DUMMY_HASH) {
+        let _ = Argon2::default().verify_password(dummy_password, &dummy_parsed);
     }
 }
 

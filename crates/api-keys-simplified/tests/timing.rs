@@ -37,7 +37,7 @@ fn calculate_stats(timings: &[Duration]) -> TimingStats {
 #[test]
 fn test_checksum_constant_time() {
     let config = KeyConfig::default().with_checksum(true);
-    let generator = ApiKeyGenerator::init("test", config, HashConfig::default()).unwrap();
+    let generator = ApiKeyGenerator::init("text", config, HashConfig::default()).unwrap();
     let api_key = generator.generate(Environment::production()).unwrap();
     let key_str = api_key.key().as_ref();
 

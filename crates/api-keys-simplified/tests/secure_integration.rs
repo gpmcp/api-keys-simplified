@@ -37,7 +37,7 @@ mod secure_integration_tests {
     #[test]
     fn test_api_key_can_be_verified_after_clone() {
         // Verify that API key functionality works correctly
-        let generator = ApiKeyGenerator::init_default_config("test").unwrap();
+        let generator = ApiKeyGenerator::init_default_config("text").unwrap();
         let api_key = generator.generate(Environment::dev()).unwrap();
 
         // Create another key with the same data for testing

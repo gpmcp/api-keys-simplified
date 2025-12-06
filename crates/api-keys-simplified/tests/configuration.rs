@@ -59,7 +59,7 @@ fn test_custom_hash_config() {
     let hash_config = HashConfig::custom(8192, 1, 1).unwrap();
 
     let config = KeyConfig::default();
-    let generator = ApiKeyGenerator::init("test", config, hash_config).unwrap();
+    let generator = ApiKeyGenerator::init("text", config, hash_config).unwrap();
     let key = generator.generate(Environment::dev()).unwrap();
 
     assert!(key.verify(key.hash()).unwrap());

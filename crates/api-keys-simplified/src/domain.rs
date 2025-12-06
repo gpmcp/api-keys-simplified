@@ -16,7 +16,6 @@ pub struct ApiKeyGenerator {
     #[getter(skip)]
     generator: KeyGenerator,
     hasher: KeyHasher,
-    config: KeyConfig,
 }
 
 // FIXME: Need better naming
@@ -50,13 +49,12 @@ impl ApiKeyGenerator {
         config: KeyConfig,
         hash_config: HashConfig,
     ) -> std::result::Result<Self, ConfigError> {
-        let prefix = KeyPrefix::new(prefix, config.separator())?;
-        let generator = KeyGenerator::new(prefix, config.clone());
+        let prefix = KeyPrefix::new(prefix)?;
+        let generator = KeyGenerator::new(prefix, config);
         let hasher = KeyHasher::new(hash_config);
         Ok(Self {
             generator,
             hasher,
-            config,
         })
     }
 
