@@ -150,7 +150,6 @@ ApiKey::verify(provided_key, stored_hash) ?;
 
 | Preset             | Memory | Time   | Verification |
 |--------------------|--------|--------|--------------|
-| Fast               | 8 MB   | 1 iter | ~10ms        |
 | Balanced (default) | 19 MB  | 2 iter | ~50ms        |
 | High Security      | 64 MB  | 3 iter | ~150ms       |
 
