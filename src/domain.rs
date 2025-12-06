@@ -58,13 +58,6 @@ impl ApiKey {
         Self::generate(prefix, environment, KeyConfig::high_security())
     }
 
-    pub fn generate_fast(
-        prefix: impl Into<String>,
-        environment: impl Into<Environment>,
-    ) -> Result<Self> {
-        Self::generate(prefix, environment, KeyConfig::fast())
-    }
-
     pub fn verify(provided_key: impl AsRef<str>, stored_hash: impl AsRef<str>) -> Result<bool> {
         KeyValidator::verify(provided_key.as_ref(), stored_hash.as_ref())
     }
@@ -126,11 +119,9 @@ mod tests {
     fn test_different_presets() {
         let balanced = ApiKey::generate_default("pk", Environment::test()).unwrap();
         let high_sec = ApiKey::generate_high_security("sk", Environment::Production).unwrap();
-        let fast = ApiKey::generate_fast("api", Environment::dev()).unwrap();
 
         assert!(!balanced.key().is_empty());
         assert!(high_sec.key().len() > balanced.key().len());
-        assert!(!fast.key().is_empty());
     }
 
     #[test]

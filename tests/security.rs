@@ -1,9 +1,13 @@
+use std::collections::HashSet;
 use api_keys_simplified::{ApiKey, Environment};
 
 #[test]
 fn test_verification_with_invalid_hash() {
+    // After timing oracle fix: invalid hash returns Ok(false) instead of Err
+    // to prevent timing-based user enumeration attacks
     let result = ApiKey::verify("any_key", "invalid_hash_format");
-    assert!(result.is_err());
+    assert!(result.is_ok());
+    assert!(!result.unwrap());
 }
 
 #[test]
@@ -38,14 +42,13 @@ fn test_hash_uniqueness_with_same_key() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_collision_resistance() {
-    use std::collections::HashSet;
-    
     let mut keys = HashSet::new();
     let count = 1000;
     
     for _ in 0..count {
         let key = ApiKey::generate_default("test", Environment::test()).unwrap();
-        keys.insert(key.key().to_string());
+        // Use .as_ref() to get actual key string, not the redacted Display output
+        keys.insert(key.key().as_ref().to_string());
     }
     
     // All keys should be unique
@@ -79,8 +82,12 @@ fn test_argon2_phc_format() {
 
 #[test]
 fn test_error_messages_dont_leak_info() {
-    // Test that verification errors are generic
-    let result = ApiKey::verify("test_key", "invalid_hash_format");
+    // After timing oracle fix: invalid hash format returns Ok(false) to prevent
+    // timing attacks, so we test DoS protection errors instead
+    
+    // Test DoS protection error (oversized input) - this still returns Err
+    let oversized_key = "a".repeat(1000);
+    let result = ApiKey::verify(&oversized_key, "some_hash");
     assert!(result.is_err());
     
     let err = result.unwrap_err();

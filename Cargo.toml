@@ -2,7 +2,8 @@
 name = "api-keys-simplified"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
+authors = ["Sandipsinh Rathod <sandip@ssdd.dev>"]
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 description = "Secure API key generation and validation library"
 repository = "https://github.com/gpmcp/api-keys-simplified"
@@ -18,13 +19,8 @@ base64 = "0.22.1"
 thiserror = "2.0.17"
 zeroize = { version = "1.8", features = ["derive"] }
 crc32fast = "1.5.0"
-serde = { version = "1.0", features = ["derive"], optional = true }
-chrono = { version = "0.4", optional = true }
-num_cpus = "1.17.0"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.27.2", features = ["derive"] }
 
 [features]
 default = []
-serde = ["dep:serde"]
-timestamps = ["dep:chrono"]
 expensive_tests = []

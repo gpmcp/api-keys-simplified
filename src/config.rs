@@ -1,5 +1,5 @@
-use strum::{Display, EnumString};
 use crate::error::{ConfigError, Error, Result};
+use strum::{Display, EnumString};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonEmptyString(String);
@@ -74,7 +74,7 @@ pub struct KeyPrefix(String);
 impl KeyPrefix {
     pub fn new(prefix: impl Into<String>) -> Result<Self> {
         let prefix = prefix.into();
-        if prefix.is_empty() || prefix.len() > 10 {
+        if prefix.is_empty() || prefix.len() > 20 {
             return Err(ConfigError::InvalidPrefixLength.into());
         }
         if !prefix
@@ -97,7 +97,6 @@ impl Default for KeyPrefix {
     }
 }
 
-
 /// Separator character for API key components (prefix, environment and data).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumString)]
 pub enum Separator {
@@ -106,7 +105,7 @@ pub enum Separator {
 
     #[strum(serialize = ".")]
     Dot,
-    
+
     #[strum(serialize = "~")]
     Tilde,
 }
@@ -117,15 +116,49 @@ impl Default for Separator {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct HashConfig {
-    pub memory_cost: u32,
-    pub time_cost: u32,
-    pub parallelism: u32,
+    memory_cost: u32,
+    time_cost: u32,
+    parallelism: u32,
 }
 
 impl HashConfig {
+    /// Creates a custom HashConfig with validated parameters.
+    pub fn custom(memory_cost: u32, time_cost: u32, parallelism: u32) -> Result<Self> {
+        // Verify parameters are accepted by Argon2 library
+        // Bad idea to do it here.. but we'll keep it here for now
+        argon2::Params::new(memory_cost, time_cost, parallelism, None)
+            .map_err(|_| ConfigError::InvalidHashParams)?;
+
+        Ok(Self {
+            memory_cost,
+            time_cost,
+            parallelism,
+        })
+    }
+
+    /// Returns the memory cost in KiB.
+    pub fn memory_cost(&self) -> u32 {
+        self.memory_cost
+    }
+
+    /// Returns the time cost (number of iterations).
+    pub fn time_cost(&self) -> u32 {
+        self.time_cost
+    }
+
+    /// Returns the parallelism degree.
+    pub fn parallelism(&self) -> u32 {
+        self.parallelism
+    }
+
+    /// Balanced preset for general production use.
+    ///
+    /// - Memory: 19 MB
+    /// - Time: 2 iterations
+    /// - Parallelism: 1 thread
+    /// - Verification time: ~50ms
     pub fn balanced() -> Self {
         Self {
             memory_cost: 19_456,
@@ -134,19 +167,17 @@ impl HashConfig {
         }
     }
 
+    /// High security preset for sensitive operations.
+    ///
+    /// - Memory: 64 MB
+    /// - Time: 3 iterations
+    /// - Parallelism: 4 threads
+    /// - Verification time: ~150ms
     pub fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
             time_cost: 3,
             parallelism: 4,
-        }
-    }
-
-    pub fn fast() -> Self {
-        Self {
-            memory_cost: 8_192,
-            time_cost: 1,
-            parallelism: 1,
         }
     }
 }
@@ -213,15 +244,6 @@ impl KeyConfig {
             separator: Separator::default(),
         }
     }
-
-    pub fn fast() -> Self {
-        Self {
-            entropy_bytes: 24,
-            include_checksum: false,
-            hash_config: HashConfig::fast(),
-            separator: Separator::default(),
-        }
-    }
 }
 
 impl Default for KeyConfig {
@@ -272,12 +294,10 @@ mod tests {
 
     #[test]
     fn test_key_config_with_separator() {
-        let config = KeyConfig::new()
-            .with_separator(Separator::Dot);
+        let config = KeyConfig::new().with_separator(Separator::Dot);
         assert_eq!(config.separator, Separator::Dot);
 
-        let config = KeyConfig::new()
-            .with_separator(Separator::Tilde);
+        let config = KeyConfig::new().with_separator(Separator::Tilde);
         assert_eq!(config.separator, Separator::Tilde);
     }
 }

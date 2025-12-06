@@ -21,9 +21,9 @@ impl KeyHasher {
             .map_err(|e| OperationError::HashingFailed(e.to_string()))?;
 
         let params = Params::new(
-            config.memory_cost,
-            config.time_cost,
-            config.parallelism,
+            config.memory_cost(),
+            config.time_cost(),
+            config.parallelism(),
             None,
         )
         .map_err(|e| OperationError::HashingFailed(e.to_string()))?;
@@ -58,10 +58,10 @@ mod tests {
     fn test_different_configs() {
         let key = "test_key";
 
-        let fast_hash = KeyHasher::hash(key, &HashConfig::fast()).unwrap();
+        let balanced_hash = KeyHasher::hash(key, &HashConfig::balanced()).unwrap();
         let secure_hash = KeyHasher::hash(key, &HashConfig::high_security()).unwrap();
 
-        assert!(!fast_hash.is_empty());
+        assert!(!balanced_hash.is_empty());
         assert!(!secure_hash.is_empty());
     }
 }

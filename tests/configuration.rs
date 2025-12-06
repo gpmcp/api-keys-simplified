@@ -37,32 +37,16 @@ fn test_high_security_preset() {
 }
 
 #[test]
-fn test_fast_preset() {
-    let key = ApiKey::generate_fast("sk", Environment::production()).unwrap();
-    
-    assert!(key.key().len() > 20); // Lower entropy = shorter key
-    assert!(ApiKey::verify(key.key(), key.hash()).unwrap());
-}
-
-#[test]
 fn test_balanced_preset() {
     let key = ApiKey::generate_default("sk", Environment::production()).unwrap();
-    
-    let fast = ApiKey::generate_fast("sk", Environment::production()).unwrap();
     let high = ApiKey::generate_high_security("sk", Environment::production()).unwrap();
     
-    // Balanced should be between fast and high security in length
-    assert!(key.key().len() > fast.key().len());
     assert!(key.key().len() < high.key().len());
 }
 
 #[test]
 fn test_custom_hash_config() {
-    let hash_config = HashConfig {
-        memory_cost: 8192,
-        time_cost: 1,
-        parallelism: 1,
-    };
+    let hash_config = HashConfig::custom(8192, 1, 1).unwrap();
     
     let config = KeyConfig::default().with_hash_config(hash_config);
     let key = ApiKey::generate("test", Environment::dev(), config).unwrap();

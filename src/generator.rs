@@ -36,12 +36,24 @@ impl KeyGenerator {
         if config.include_checksum {
             let checksum = Self::compute_checksum(&key);
             // Use . as separator for checksum (always dot, regardless of key separator)
+            // FIXME: We can use key separator here too.
             Ok(format!("{}.{}", key, checksum))
         } else {
             Ok(key)
         }
     }
 
+    /// Computes a **non-cryptographic** integrity checksum using CRC32.
+    ///
+    /// # Security Note
+    ///
+    /// CRC32 is NOT collision-resistant and should NOT be relied upon for security.
+    /// This checksum serves only to:
+    /// - Detect accidental corruption (typos, truncation)
+    /// - Enable fast rejection of malformed keys before expensive Argon2 verification
+    ///
+    /// The Argon2 hash provides actual cryptographic authentication.
+    /// An attacker can find CRC32 collisions with ~65,536 attempts (birthday attack).
     fn compute_checksum(key: &str) -> String {
         let crc = crc32fast::hash(key.as_bytes());
         format!("{:08x}", crc) // 8 hex characters for full 32-bit CRC
