@@ -77,9 +77,8 @@ mod tests {
 
     #[test]
     fn test_display_is_generic() {
-        let err = Error::OperationFailed(OperationError::Hashing(
-            "detailed salt error".to_string(),
-        ));
+        let err =
+            Error::OperationFailed(OperationError::Hashing("detailed salt error".to_string()));
         // Display is generic (safe for clients)
         assert_eq!(err.to_string(), "Operation failed");
 

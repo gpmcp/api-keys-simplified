@@ -15,9 +15,8 @@ impl KeyHasher {
     pub fn hash(key: &SecureString, config: &HashConfig) -> Result<String> {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 16];
-        getrandom::fill(&mut salt_bytes).map_err(|e| {
-            OperationError::Hashing(format!("Failed to generate salt: {}", e))
-        })?;
+        getrandom::fill(&mut salt_bytes)
+            .map_err(|e| OperationError::Hashing(format!("Failed to generate salt: {}", e)))?;
 
         let salt = SaltString::encode_b64(&salt_bytes)
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
