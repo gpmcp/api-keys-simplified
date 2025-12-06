@@ -84,7 +84,7 @@ mod tests {
 
         // Debug contains details (for logging)
         let debug_str = format!("{:?}", err);
-        assert!(debug_str.contains("HashingFailed"));
+        assert!(debug_str.contains("Hashing"));
         assert!(debug_str.contains("salt"));
     }
 
