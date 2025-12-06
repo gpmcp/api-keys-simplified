@@ -22,10 +22,10 @@ fn test_without_checksum() {
     let key = ApiKey::generate("pk", Environment::production(), config).unwrap();
     
     // Environment "live" means production, Base64URL can contain underscores and hyphens
-    // Key format: pk.live.{base64url_data} = 2 dots
-    let parts: Vec<&str> = key.key().as_ref().split('.').collect();
-    assert!(parts.len() >= 3); // prefix.env.data
-    assert!(key.key().as_ref().starts_with("pk.live."));
+    // Key format with dash separator: pk-live-{base64url_data}
+    // No checksum, so no dot at the end
+    assert!(key.key().as_ref().starts_with("pk-live-"));
+    assert!(!key.key().as_ref().contains('.'), "Should not have checksum dot");
 }
 
 #[test]

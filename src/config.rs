@@ -1,41 +1,23 @@
-use crate::error::{ConfigError, Error, Result};
-use strum::{Display, EnumString};
+use crate::error::{ConfigError, Result};
+use lazy_static::lazy_static;
+use strum::{Display, EnumIter, EnumString};
+use strum::{IntoEnumIterator, IntoStaticStr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NonEmptyString(String);
-
-impl TryFrom<&str> for NonEmptyString {
-    type Error = Error;
-
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
-        Self::try_from(value.to_owned())
-    }
-}
-
-impl TryFrom<String> for NonEmptyString {
-    type Error = Error;
-
-    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        if value.is_empty() {
-            return Err(ConfigError::EmptyString.into());
-        }
-        Ok(Self(value))
-    }
-}
-
-impl NonEmptyString {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, Display, IntoStaticStr)]
 pub enum Environment {
+    #[strum(serialize = "dev")]
     Development,
+    #[strum(serialize = "test")]
     Test,
+    #[strum(serialize = "staging")]
     Staging,
+    #[strum(serialize = "live")]
     Production,
-    Custom(NonEmptyString),
+}
+
+lazy_static! {
+    static ref ENVIRONMENT_VARIANTS: Vec<Environment> =
+        Environment::iter().collect();
 }
 
 impl Environment {
@@ -51,20 +33,8 @@ impl Environment {
     pub fn production() -> Self {
         Environment::Production
     }
-    pub fn custom(name: NonEmptyString) -> Self {
-        Self::Custom(name)
-    }
-}
-
-impl Environment {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Development => "dev",
-            Self::Test => "test",
-            Self::Staging => "staging",
-            Self::Production => "live",
-            Self::Custom(s) => s.as_str(),
-        }
+    pub fn variants() -> &'static [Environment] {
+        &ENVIRONMENT_VARIANTS
     }
 }
 
@@ -72,7 +42,7 @@ impl Environment {
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(prefix: impl Into<String>) -> Result<Self> {
+    pub fn new(prefix: impl Into<String>, separator: &Separator) -> Result<Self> {
         let prefix = prefix.into();
         if prefix.is_empty() || prefix.len() > 20 {
             return Err(ConfigError::InvalidPrefixLength.into());
@@ -82,6 +52,13 @@ impl KeyPrefix {
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
             return Err(ConfigError::InvalidPrefixCharacters.into());
+        }
+        let sep_string: &'static str = separator.into();
+        if let Some(invalid) = Environment::variants()
+            .iter()
+            .find(|v| prefix.contains(&format!("{sep_string}{v}{sep_string}")))
+        {
+            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()).into());
         }
         Ok(Self(prefix))
     }
@@ -98,13 +75,13 @@ impl Default for KeyPrefix {
 }
 
 /// Separator character for API key components (prefix, environment and data).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Separator {
     #[strum(serialize = "/")]
     Slash,
 
-    #[strum(serialize = ".")]
-    Dot,
+    #[strum(serialize = "-")]
+    Dash,
 
     #[strum(serialize = "~")]
     Tilde,
@@ -112,7 +89,7 @@ pub enum Separator {
 
 impl Default for Separator {
     fn default() -> Self {
-        Separator::Dot
+        Separator::Dash
     }
 }
 
@@ -259,10 +236,11 @@ mod tests {
 
     #[test]
     fn test_prefix_validation() {
-        assert!(KeyPrefix::new("sk").is_ok());
-        assert!(KeyPrefix::new("api_key").is_ok());
-        assert!(KeyPrefix::new("").is_err());
-        assert!(KeyPrefix::new("invalid-prefix").is_err());
+        let sep = &Separator::default();
+        assert!(KeyPrefix::new("sk", sep).is_ok());
+        assert!(KeyPrefix::new("api_key", sep).is_ok());
+        assert!(KeyPrefix::new("", sep).is_err());
+        assert!(KeyPrefix::new("invalid-prefix", sep).is_err());
     }
 
     #[test]
@@ -274,28 +252,31 @@ mod tests {
 
     #[test]
     fn test_separator_display() {
-        assert_eq!(Separator::Slash.to_string(), "/");
-        assert_eq!(Separator::Dot.to_string(), ".");
-        assert_eq!(Separator::Tilde.to_string(), "~");
+        let slash: &'static str = Separator::Slash.into();
+        let dash: &'static str = Separator::Dash.into();
+        let tilde: &'static str = Separator::Tilde.into();
+        assert_eq!(slash, "/");
+        assert_eq!(dash, "-");
+        assert_eq!(tilde, "~");
     }
 
     #[test]
     fn test_separator_from_str() {
         assert_eq!(Separator::from_str("/").unwrap(), Separator::Slash);
-        assert_eq!(Separator::from_str(".").unwrap(), Separator::Dot);
+        assert_eq!(Separator::from_str("-").unwrap(), Separator::Dash);
         assert_eq!(Separator::from_str("~").unwrap(), Separator::Tilde);
-        assert!(Separator::from_str("-").is_err());
+        assert!(Separator::from_str(".").is_err());
     }
 
     #[test]
     fn test_separator_default() {
-        assert_eq!(Separator::default(), Separator::Dot);
+        assert_eq!(Separator::default(), Separator::Dash);
     }
 
     #[test]
     fn test_key_config_with_separator() {
-        let config = KeyConfig::new().with_separator(Separator::Dot);
-        assert_eq!(config.separator, Separator::Dot);
+        let config = KeyConfig::new().with_separator(Separator::Dash);
+        assert_eq!(config.separator, Separator::Dash);
 
         let config = KeyConfig::new().with_separator(Separator::Tilde);
         assert_eq!(config.separator, Separator::Tilde);

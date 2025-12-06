@@ -15,7 +15,7 @@ fn test_key_format() {
     let key = ApiKey::generate_default("pk", Environment::test()).unwrap();
     let key_str = key.key().as_ref();
 
-    assert!(key_str.starts_with("pk.test."));
+    assert!(key_str.starts_with("pk-test-"));
     assert!(key_str.len() > 20);
 }
 
@@ -26,10 +26,10 @@ fn test_different_environments() {
     let staging = ApiKey::generate_default("key", Environment::staging()).unwrap();
     let live = ApiKey::generate_default("key", Environment::production()).unwrap();
 
-    assert!(dev.key().as_ref().contains(".dev."));
-    assert!(test.key().as_ref().contains(".test."));
-    assert!(staging.key().as_ref().contains(".staging."));
-    assert!(live.key().as_ref().contains(".live."));
+    assert!(dev.key().as_ref().contains("-dev-"));
+    assert!(test.key().as_ref().contains("-test-"));
+    assert!(staging.key().as_ref().contains("-staging-"));
+    assert!(live.key().as_ref().contains("-live-"));
 }
 
 #[test]
@@ -58,13 +58,13 @@ fn test_parse_key_components() {
         "a_b_",
     ];
     for prefix in prefixes {
-        let key = ApiKey::generate_default(prefix, Environment::custom("foo".try_into().unwrap()))
+        let key = ApiKey::generate_default(prefix, Environment::staging())
             .unwrap();
         println!("{}", key.key().as_ref());
         let prefix_ans = ApiKey::parse_prefix(key.key(), Separator::default()).unwrap();
         let env = ApiKey::parse_environment(key.key(), Separator::default()).unwrap();
 
         assert_eq!(prefix_ans, prefix);
-        assert_eq!(env, "foo");
+        assert_eq!(env, "staging");
     }
 }

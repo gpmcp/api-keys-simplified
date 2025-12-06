@@ -33,7 +33,7 @@ impl ApiKey {
         environment: impl Into<Environment>,
         config: KeyConfig,
     ) -> Result<Self> {
-        let prefix = KeyPrefix::new(prefix)?;
+        let prefix = KeyPrefix::new(prefix, &config.separator)?;
 
         let key = KeyGenerator::generate(prefix, environment.into(), &config)?;
         let hash = KeyHasher::hash(&key, &config.hash_config)?;
@@ -108,7 +108,7 @@ mod tests {
         let key_str = api_key.key();
         let hash_str = api_key.hash();
 
-        assert!(key_str.as_ref().starts_with("sk.live."));
+        assert!(key_str.as_ref().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
         assert!(ApiKey::verify(key_str.as_ref(), hash_str).unwrap());

@@ -40,6 +40,9 @@ pub enum ConfigError {
     #[error("Prefix must contain only alphanumeric characters or underscores")]
     InvalidPrefixCharacters,
 
+    #[error("Prefix must not contain {0} substring")]
+    InvalidPrefixSubstring(String),
+
     #[error("String must not be empty")]
     EmptyString,
 

@@ -52,14 +52,14 @@ impl KeyValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::HashConfig, hasher::KeyHasher};
+    use crate::{config::HashConfig, hasher::KeyHasher, SecureString};
 
     #[test]
     fn test_verification() {
-        let key = "sk_live_testkey123";
-        let hash = KeyHasher::hash(key, &HashConfig::default()).unwrap();
+        let key = SecureString::new("sk_live_testkey123".to_string());
+        let hash = KeyHasher::hash(&key, &HashConfig::default()).unwrap();
 
-        assert!(KeyValidator::verify(key, &hash).unwrap());
+        assert!(KeyValidator::verify(key.as_ref(), &hash).unwrap());
         assert!(!KeyValidator::verify("wrong_key", &hash).unwrap());
     }
 
@@ -75,7 +75,8 @@ mod tests {
     #[test]
     fn test_oversized_key_rejection() {
         let oversized_key = "a".repeat(513); // Exceeds MAX_KEY_LENGTH
-        let hash = KeyHasher::hash("valid_key", &HashConfig::default()).unwrap();
+        let valid_key = SecureString::new("valid_key".to_string());
+        let hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
 
         let result = KeyValidator::verify(&oversized_key, &hash);
         assert!(result.is_err());
@@ -93,7 +94,8 @@ mod tests {
 
     #[test]
     fn test_boundary_key_length() {
-        let hash = KeyHasher::hash("valid_key", &HashConfig::default()).unwrap();
+        let valid_key = SecureString::new("valid_key".to_string());
+        let hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
@@ -109,18 +111,18 @@ mod tests {
 
     #[test]
     fn test_timing_oracle_protection() {
-        let valid_key = "sk_live_testkey123";
-        let valid_hash = KeyHasher::hash(valid_key, &HashConfig::default()).unwrap();
+        let valid_key = SecureString::new("sk_live_testkey123".to_string());
+        let valid_hash = KeyHasher::hash(&valid_key, &HashConfig::default()).unwrap();
 
         let result1 = KeyValidator::verify("wrong_key", &valid_hash);
         assert!(result1.is_ok());
         assert!(!result1.unwrap());
 
-        let result2 = KeyValidator::verify(valid_key, "invalid_hash_format");
+        let result2 = KeyValidator::verify(valid_key.as_ref(), "invalid_hash_format");
         assert!(result2.is_ok());
         assert!(!result2.unwrap());
 
-        let result3 = KeyValidator::verify(valid_key, "not even close to valid");
+        let result3 = KeyValidator::verify(valid_key.as_ref(), "not even close to valid");
         assert!(result3.is_ok());
         assert!(!result3.unwrap());
     }

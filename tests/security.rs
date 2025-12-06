@@ -60,8 +60,8 @@ fn test_key_format_consistency() {
     let key = ApiKey::generate_default("format", Environment::test()).unwrap();
     let key_str = key.key().as_ref();
 
-    // With dot separator and checksum: format.test.data.checksum = 3 dots
-    assert_eq!(key_str.matches('.').count(), 3);
+    // With dash separator and checksum: format-test-data.checksum = 1 dot (for checksum only)
+    assert_eq!(key_str.matches('.').count(), 1);
     
     // Should not contain spaces or special characters except . and base64url chars (A-Za-z0-9-_)
     assert!(key_str.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.'));

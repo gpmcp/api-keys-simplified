@@ -20,6 +20,7 @@ thiserror = "2.0.17"
 zeroize = { version = "1.8", features = ["derive"] }
 crc32fast = "1.5.0"
 strum = { version = "0.27.2", features = ["derive"] }
+lazy_static = "1.5.0"
 
 [features]
 default = []
