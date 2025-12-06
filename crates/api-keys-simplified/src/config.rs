@@ -1,5 +1,5 @@
+use crate::error::ConfigError;
 use derive_getters::Getters;
-use crate::error::{ConfigError, Result};
 use lazy_static::lazy_static;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
@@ -100,7 +100,7 @@ pub struct HashConfig {
 
 impl HashConfig {
     /// Creates a custom HashConfig with validated parameters.
-    pub fn custom(memory_cost: u32, time_cost: u32, parallelism: u32) -> Result<Self> {
+    pub fn custom(memory_cost: u32, time_cost: u32, parallelism: u32) -> std::result::Result<Self, ConfigError> {
         // Verify parameters are accepted by Argon2 library
         // Bad idea to do it here.. but we'll keep it here for now
         argon2::Params::new(memory_cost, time_cost, parallelism, None)
@@ -175,12 +175,12 @@ impl KeyConfig {
         Self::default()
     }
 
-    pub fn with_entropy(mut self, bytes: usize) -> Result<Self> {
+    pub fn with_entropy(mut self, bytes: usize) -> std::result::Result<Self, ConfigError> {
         if bytes < 16 {
-            return Err(ConfigError::EntropyTooLow.into());
+            return Err(ConfigError::EntropyTooLow);
         }
         if bytes > 64 {
-            return Err(ConfigError::EntropyTooHigh.into());
+            return Err(ConfigError::EntropyTooHigh);
         }
         self.entropy_bytes = bytes;
         Ok(self)

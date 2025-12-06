@@ -11,10 +11,6 @@ pub enum Error {
     #[error("Invalid input")]
     InvalidFormat,
 
-    /// Configuration error with specific details
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-
     /// Operation failed (intentionally vague for security)
     ///
     /// This could be:
@@ -103,28 +99,5 @@ mod tests {
     fn test_format_errors_are_generic() {
         let err = Error::InvalidFormat;
         assert_eq!(err.to_string(), "Invalid input");
-    }
-
-    #[test]
-    fn test_config_errors_are_specific() {
-        let err = Error::Config(ConfigError::EntropyTooLow);
-        assert_eq!(
-            err.to_string(),
-            "Entropy must be at least 16 bytes (128 bits)"
-        );
-
-        let err = Error::Config(ConfigError::InvalidPrefixLength);
-        assert_eq!(
-            err.to_string(),
-            "Prefix must be between 1 and 10 characters"
-        );
-    }
-
-    #[test]
-    fn test_config_error_conversion() {
-        // Test automatic conversion from ConfigError to Error
-        let config_err = ConfigError::EmptyString;
-        let err: Error = config_err.into();
-        assert_eq!(err.to_string(), "String must not be empty");
     }
 }
