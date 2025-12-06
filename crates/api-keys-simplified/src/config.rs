@@ -74,8 +74,7 @@ impl Default for KeyPrefix {
 }
 
 /// Separator character for API key components (prefix, environment and data).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, Default)]
 pub enum Separator {
     #[strum(serialize = "/")]
     Slash,
@@ -87,7 +86,6 @@ pub enum Separator {
     #[strum(serialize = "~")]
     Tilde,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct HashConfig {
