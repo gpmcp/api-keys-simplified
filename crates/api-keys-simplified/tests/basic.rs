@@ -8,9 +8,11 @@ fn test_basic_flow() {
     let hash = key.hash();
 
     assert!(key.verify(hash).unwrap());
-    
+
     // For verifying a different key against the same hash, create a new ApiKey
-    let wrong_key = ApiKey::new(api_keys_simplified::SecureString::from("wrong_key".to_string()));
+    let wrong_key = ApiKey::new(api_keys_simplified::SecureString::from(
+        "wrong_key".to_string(),
+    ));
     assert!(!wrong_key.verify(hash).unwrap());
 }
 
@@ -27,7 +29,7 @@ fn test_key_format() {
 #[test]
 fn test_different_environments() {
     let generator = ApiKeyGenerator::init_default_config("key").unwrap();
-    
+
     let dev = generator.generate(Environment::dev()).unwrap();
     let test = generator.generate(Environment::test()).unwrap();
     let staging = generator.generate(Environment::staging()).unwrap();
@@ -45,10 +47,14 @@ fn test_verification_with_wrong_key() {
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.hash();
 
-    let wrong1 = ApiKey::new(api_keys_simplified::SecureString::from("completely_wrong_key".to_string()));
+    let wrong1 = ApiKey::new(api_keys_simplified::SecureString::from(
+        "completely_wrong_key".to_string(),
+    ));
     assert!(!wrong1.verify(hash).unwrap());
-    
-    let wrong2 = ApiKey::new(api_keys_simplified::SecureString::from("sk_live_wrongrandomdata".to_string()));
+
+    let wrong2 = ApiKey::new(api_keys_simplified::SecureString::from(
+        "sk_live_wrongrandomdata".to_string(),
+    ));
     assert!(!wrong2.verify(hash).unwrap());
 }
 

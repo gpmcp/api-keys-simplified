@@ -68,7 +68,7 @@ mod tests {
 
         let balanced_hasher = KeyHasher::new(HashConfig::balanced());
         let balanced_hash = balanced_hasher.hash(&key).unwrap();
-        
+
         let secure_hasher = KeyHasher::new(HashConfig::high_security());
         let secure_hash = secure_hasher.hash(&key).unwrap();
 

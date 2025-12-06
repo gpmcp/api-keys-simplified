@@ -60,10 +60,14 @@ impl ApiKeyGenerator {
         })
     }
 
-    pub fn init_default_config(prefix: impl Into<String>) -> std::result::Result<Self, ConfigError> {
+    pub fn init_default_config(
+        prefix: impl Into<String>,
+    ) -> std::result::Result<Self, ConfigError> {
         Self::init(prefix, KeyConfig::default(), HashConfig::default())
     }
-    pub fn init_high_security_config(prefix: impl Into<String>) -> std::result::Result<Self, ConfigError> {
+    pub fn init_high_security_config(
+        prefix: impl Into<String>,
+    ) -> std::result::Result<Self, ConfigError> {
         Self::init(
             prefix,
             KeyConfig::high_security(),

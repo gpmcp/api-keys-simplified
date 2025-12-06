@@ -22,7 +22,10 @@ mod secure_integration_tests {
     #[test]
     fn test_secure_string_in_collections() {
         // Verify SecureString works in Vec (common use case)
-        let keys = vec![SecureString::from("key1".to_string()), SecureString::from("key2".to_string())];
+        let keys = vec![
+            SecureString::from("key1".to_string()),
+            SecureString::from("key2".to_string()),
+        ];
 
         assert_eq!(keys[0].as_ref(), "key1");
         assert_eq!(keys[1].as_ref(), "key2");
@@ -36,11 +39,11 @@ mod secure_integration_tests {
         // Verify that API key functionality works correctly
         let generator = ApiKeyGenerator::init_default_config("test").unwrap();
         let api_key = generator.generate(Environment::dev()).unwrap();
-        
+
         // Create another key with the same data for testing
         let key_str = api_key.key().as_ref().to_string();
         let hash_str = api_key.hash().to_string();
-        
+
         // Create a new ApiKey instance with the same key
         let another_key = ApiKey::new(SecureString::from(key_str));
 

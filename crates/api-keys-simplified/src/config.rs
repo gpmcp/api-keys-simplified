@@ -45,23 +45,26 @@ impl Environment {
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(prefix: impl Into<String>, separator: &Separator) -> std::result::Result<Self, ConfigError> {
+    pub fn new(
+        prefix: impl Into<String>,
+        separator: &Separator,
+    ) -> std::result::Result<Self, ConfigError> {
         let prefix = prefix.into();
         if prefix.is_empty() || prefix.len() > 20 {
-            return Err(ConfigError::InvalidPrefixLength.into());
+            return Err(ConfigError::InvalidPrefixLength);
         }
         if !prefix
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
-            return Err(ConfigError::InvalidPrefixCharacters.into());
+            return Err(ConfigError::InvalidPrefixCharacters);
         }
         let sep_string: &'static str = separator.into();
         if let Some(invalid) = Environment::variants()
             .iter()
             .find(|v| prefix.contains(&format!("{sep_string}{v}{sep_string}")))
         {
-            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()).into());
+            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
         Ok(Self(prefix))
     }
@@ -100,7 +103,11 @@ pub struct HashConfig {
 
 impl HashConfig {
     /// Creates a custom HashConfig with validated parameters.
-    pub fn custom(memory_cost: u32, time_cost: u32, parallelism: u32) -> std::result::Result<Self, ConfigError> {
+    pub fn custom(
+        memory_cost: u32,
+        time_cost: u32,
+        parallelism: u32,
+    ) -> std::result::Result<Self, ConfigError> {
         // Verify parameters are accepted by Argon2 library
         // Bad idea to do it here.. but we'll keep it here for now
         argon2::Params::new(memory_cost, time_cost, parallelism, None)

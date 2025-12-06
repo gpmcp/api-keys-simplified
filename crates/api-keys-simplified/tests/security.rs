@@ -5,7 +5,9 @@ use std::collections::HashSet;
 fn test_verification_with_invalid_hash() {
     // After timing oracle fix: invalid hash returns Ok(false) instead of Err
     // to prevent timing-based user enumeration attacks
-    let any_key = ApiKey::new(api_keys_simplified::SecureString::from("any_key".to_string()));
+    let any_key = ApiKey::new(api_keys_simplified::SecureString::from(
+        "any_key".to_string(),
+    ));
     let result = any_key.verify("invalid_hash_format");
     assert!(result.is_ok());
     assert!(!result.unwrap());
