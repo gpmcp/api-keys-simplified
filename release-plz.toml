@@ -1,0 +1,8 @@
+[[package]]
+name = "registry-testkit"
+publish = true
+
+
+[[package]]
+name = "ci"
+publish = false
