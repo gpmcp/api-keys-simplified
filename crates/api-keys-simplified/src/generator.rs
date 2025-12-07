@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 // Prevent DoS: Validate input length before processing
 const MAX_KEY_LENGTH: usize = 512;
 const CHECKSUM_SEPARATOR: u8 = b'.';
+static DUMMY_KEY: &str = "dummy_key_for_timing_protection";
 
 #[derive(Clone)]
 pub struct KeyGenerator {
@@ -100,8 +101,7 @@ impl KeyGenerator {
         if key.len() > MAX_KEY_LENGTH {
             // Perform fake work to prevent timing side-channel attacks
             // This ensures rejection takes similar time as actual verification
-            let dummy_key = "dummy_key_for_timing_protection";
-            let _ = self.compute_checksum(dummy_key);
+            let _ = self.compute_checksum(DUMMY_KEY);
             return Err(Error::InvalidFormat);
         }
 
@@ -113,7 +113,9 @@ impl KeyGenerator {
 
         let computed = match self.compute_checksum(key_without_checksum) {
             Some(computed) => computed,
-            None => return Ok(false),
+            None => {
+                let _ = self.compute_checksum(DUMMY_KEY);
+                return Ok(false) },
         };
 
         // Use constant-time comparison to prevent timing attacks

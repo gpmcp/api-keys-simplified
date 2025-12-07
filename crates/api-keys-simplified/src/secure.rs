@@ -35,7 +35,7 @@ use subtle::ConstantTimeEq;
 /// - **Explicit access**: Requires `.expose_secret()` call, making code auditable
 /// - **Prevents silent leakage**: No implicit coercion to `&str` in logs/errors
 /// - **Grep-able security**: Easy to audit with `git grep "\.expose_secret\(\)"`
-/// - **Industry standard**: Uses the battle-tested `secrecy` crate
+/// - **Industry stan`dard**: Uses the battle-tested `secrecy` crate
 pub type SecureString = SecretString;
 
 /// Extension trait to add convenience methods to SecureString
