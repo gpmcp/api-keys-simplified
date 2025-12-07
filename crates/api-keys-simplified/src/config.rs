@@ -337,14 +337,14 @@ mod tests {
         assert!(KeyPrefix::new("v42").is_err());
         assert!(KeyPrefix::new("v100").is_err());
         assert!(KeyPrefix::new("v0").is_err());
-assert!(KeyPrefix::new("apiv1").is_err());
+        assert!(KeyPrefix::new("apiv1").is_err());
         assert!(KeyPrefix::new("apiv2").is_err());
         assert!(KeyPrefix::new("myv42key").is_err());
         assert!(KeyPrefix::new("testv1").is_err());
         assert!(KeyPrefix::new("v1beta").is_err());
         assert!(KeyPrefix::new("betav1").is_err());
         assert!(KeyPrefix::new("keyv123end").is_err());
-        
+
         // Should allow prefixes without version patterns
         assert!(KeyPrefix::new("version").is_ok());
         assert!(KeyPrefix::new("vault").is_ok());
