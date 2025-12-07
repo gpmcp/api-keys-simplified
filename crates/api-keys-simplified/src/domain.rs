@@ -56,7 +56,11 @@ impl ApiKeyManager {
         let validator = KeyValidator::new(&hash_config)?;
         let hasher = KeyHasher::new(hash_config);
 
-        Ok(Self { generator, hasher, validator })
+        Ok(Self {
+            generator,
+            hasher,
+            validator,
+        })
     }
 
     pub fn init_default_config(

@@ -121,7 +121,7 @@ mod tests {
         let hash = hasher.hash(&valid_key).unwrap();
 
         let validator = KeyValidator::new(&HashConfig::default()).unwrap();
-        
+
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
         let result = validator.verify(&max_key, hash.as_ref());

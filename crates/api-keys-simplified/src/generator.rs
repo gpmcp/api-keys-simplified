@@ -70,7 +70,7 @@ impl KeyGenerator {
             key.push(CHECKSUM_SEPARATOR);
             key.append(&mut checksum.into_bytes());
         }
-        println!("{}:{}",key.capacity(), key.len());
+        println!("{}:{}", key.capacity(), key.len());
 
         Ok(SecureString::new(String::from_utf8(key).map_err(|_| {
             Error::OperationFailed(OperationError::Generation(
