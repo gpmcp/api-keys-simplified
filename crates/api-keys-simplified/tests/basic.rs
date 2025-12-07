@@ -1,24 +1,22 @@
-use api_keys_simplified::{ApiKey, ApiKeyGenerator, Environment, Separator};
+use api_keys_simplified::{ApiKeyManager, Environment, Separator};
 
 #[test]
 fn test_basic_flow() {
-    let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let _key_str = key.key().as_ref();
     let hash = key.hash();
 
-    assert!(key.verify(hash).unwrap());
+    assert!(generator.verify(key.key(), hash).unwrap());
 
     // For verifying a different key against the same hash, create a new ApiKey
-    let wrong_key = ApiKey::new(api_keys_simplified::SecureString::from(
-        "wrong_key".to_string(),
-    ));
-    assert!(!wrong_key.verify(hash).unwrap());
+    let wrong_key = api_keys_simplified::SecureString::from("wrong_key".to_string());
+    assert!(!generator.verify(&wrong_key, hash).unwrap());
 }
 
 #[test]
 fn test_key_format() {
-    let generator = ApiKeyGenerator::init_default_config("pk").unwrap();
+    let generator = ApiKeyManager::init_default_config("pk").unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let key_str = key.key().as_ref();
 
@@ -28,7 +26,7 @@ fn test_key_format() {
 
 #[test]
 fn test_different_environments() {
-    let generator = ApiKeyGenerator::init_default_config("key").unwrap();
+    let generator = ApiKeyManager::init_default_config("key").unwrap();
 
     let dev = generator.generate(Environment::dev()).unwrap();
     let test = generator.generate(Environment::test()).unwrap();
@@ -43,24 +41,20 @@ fn test_different_environments() {
 
 #[test]
 fn test_verification_with_wrong_key() {
-    let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.hash();
 
-    let wrong1 = ApiKey::new(api_keys_simplified::SecureString::from(
-        "completely_wrong_key".to_string(),
-    ));
-    assert!(!wrong1.verify(hash).unwrap());
+    let wrong1 = api_keys_simplified::SecureString::from("completely_wrong_key".to_string());
+    assert!(!generator.verify(&wrong1, hash).unwrap());
 
-    let wrong2 = ApiKey::new(api_keys_simplified::SecureString::from(
-        "sk_live_wrongrandomdata".to_string(),
-    ));
-    assert!(!wrong2.verify(hash).unwrap());
+    let wrong2 = api_keys_simplified::SecureString::from("sk_live_wrongrandomdata".to_string());
+    assert!(!generator.verify(&wrong2, hash).unwrap());
 }
 
 #[test]
 fn test_key_uniqueness() {
-    let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
     let key1 = generator.generate(Environment::production()).unwrap();
     let key2 = generator.generate(Environment::production()).unwrap();
 
@@ -72,7 +66,7 @@ fn test_key_uniqueness() {
 fn test_parse_key_components() {
     let prefixes = ["a", "a_b", "a_b_"];
     for prefix in prefixes {
-        let generator = ApiKeyGenerator::init_default_config(prefix).unwrap();
+        let generator = ApiKeyManager::init_default_config(prefix).unwrap();
         let api_key = generator.generate(Environment::staging()).unwrap();
         println!("{}", api_key.key().as_ref());
         let (prefix_ans, env) = api_key.parse_key(Separator::default()).unwrap();

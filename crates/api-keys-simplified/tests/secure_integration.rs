@@ -1,4 +1,4 @@
-use api_keys_simplified::{ApiKey, ApiKeyGenerator, Environment, SecureString};
+use api_keys_simplified::{ApiKeyManager, Environment, SecureString};
 
 /// Integration tests for secure memory handling
 #[cfg(test)]
@@ -7,7 +7,7 @@ mod secure_integration_tests {
 
     #[test]
     fn test_api_key_debug_redacts_key() {
-        let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+        let generator = ApiKeyManager::init_default_config("sk").unwrap();
         let api_key = generator.generate(Environment::production()).unwrap();
 
         // Debug output should not expose the actual key
@@ -37,7 +37,7 @@ mod secure_integration_tests {
     #[test]
     fn test_api_key_can_be_verified_after_clone() {
         // Verify that API key functionality works correctly
-        let generator = ApiKeyGenerator::init_default_config("text").unwrap();
+        let generator = ApiKeyManager::init_default_config("text").unwrap();
         let api_key = generator.generate(Environment::dev()).unwrap();
 
         // Create another key with the same data for testing
@@ -45,10 +45,10 @@ mod secure_integration_tests {
         let hash_str = api_key.hash().as_ref().to_string();
 
         // Create a new ApiKey instance with the same key
-        let another_key = ApiKey::new(SecureString::from(key_str));
+        let another_key = SecureString::from(key_str);
 
         // Verification should work with the same data
-        assert!(another_key.verify(&hash_str).unwrap());
+        assert!(generator.verify(&another_key, &hash_str).unwrap());
     }
 
     #[test]
@@ -85,7 +85,7 @@ mod secure_integration_tests {
     #[test]
     fn test_api_key_lifecycle_with_secure_memory() {
         // Full lifecycle test demonstrating secure memory usage
-        let generator = ApiKeyGenerator::init_default_config("api").unwrap();
+        let generator = ApiKeyManager::init_default_config("api").unwrap();
         let key1 = generator.generate(Environment::production()).unwrap();
         let key_str = key1.key().as_ref().to_string();
         let hash_str = key1.hash().as_ref().to_string();
@@ -94,8 +94,8 @@ mod secure_integration_tests {
         drop(key1);
 
         // Verification still works with the copied strings
-        let verify_key = ApiKey::new(SecureString::from(key_str));
-        assert!(verify_key.verify(&hash_str).unwrap());
+        let verify_key = SecureString::from(key_str);
+        assert!(generator.verify(&verify_key, &hash_str).unwrap());
 
         // The SecureString inside key1 was zeroed before deallocation
         // This is guaranteed by ZeroizeOnDrop trait implementation
@@ -106,7 +106,7 @@ mod secure_integration_tests {
         // Create multiple keys to verify zeroing works consistently
         let mut keys = Vec::new();
         for i in 0..5 {
-            let gen = ApiKeyGenerator::init_default_config(format!("key{}", i)).unwrap();
+            let gen = ApiKeyManager::init_default_config(format!("key{}", i)).unwrap();
             keys.push(gen.generate(Environment::dev()).unwrap());
         }
 

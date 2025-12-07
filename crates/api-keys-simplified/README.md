@@ -211,3 +211,13 @@ All cryptographic implementations use well-audited crates:
 ## Reporting Vulnerabilities
 
 Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
+
+
+## Progress
+
+- [ ] Rate limiting
+- [ ] Key expiration/rotation support
+- [x] Fix timing attack in dummy_load
+- [x] Zero all intermediate string allocations
+
+Contributions welcome! See [CONTRIBUTING.md](https://github.com/gpmcp/api-keys-simplified/blob/main/CONTRIBUTING.md) for guidelines.

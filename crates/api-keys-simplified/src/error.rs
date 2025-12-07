@@ -30,7 +30,7 @@ pub enum Error {
 /// Configuration errors with specific variants
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("Prefix must be between 1 and 10 characters")]
+    #[error("Prefix must be between 1 and 20 characters")]
     InvalidPrefixLength,
 
     #[error("Prefix must contain only alphanumeric characters or underscores")]
@@ -50,6 +50,9 @@ pub enum ConfigError {
 
     #[error("Invalid Argon2 parameters")]
     InvalidHashParams,
+
+    #[error("Invalid Argon2 hash. Please raise an issue at https://github.com/gpmcp/api-keys-simplified/issues/new")]
+    InvalidArgon2Hash,
 }
 
 /// Detailed operation errors for debugging (use {:?} to see these)

@@ -12,10 +12,12 @@ use derive_getters::Getters;
 use std::fmt::Debug;
 
 #[derive(Clone, Getters)]
-pub struct ApiKeyGenerator {
+pub struct ApiKeyManager {
     #[getter(skip)]
     generator: KeyGenerator,
     hasher: KeyHasher,
+    #[getter(skip)]
+    validator: KeyValidator,
 }
 
 // FIXME: Need better naming
@@ -43,7 +45,7 @@ impl<T: Debug> Debug for ApiKey<T> {
     }
 }
 
-impl ApiKeyGenerator {
+impl ApiKeyManager {
     pub fn init(
         prefix: impl Into<String>,
         config: KeyConfig,
@@ -51,8 +53,10 @@ impl ApiKeyGenerator {
     ) -> std::result::Result<Self, ConfigError> {
         let prefix = KeyPrefix::new(prefix)?;
         let generator = KeyGenerator::new(prefix, config);
+        let validator = KeyValidator::new(&hash_config)?;
         let hasher = KeyHasher::new(hash_config);
-        Ok(Self { generator, hasher })
+
+        Ok(Self { generator, hasher, validator })
     }
 
     pub fn init_default_config(
@@ -76,6 +80,14 @@ impl ApiKeyGenerator {
 
         Ok(api_key)
     }
+
+    pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<bool> {
+        self.validator.verify(key.as_ref(), stored_hash.as_ref())
+    }
+
+    pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
+        KeyGenerator::verify_checksum(key.as_ref())
+    }
 }
 
 impl<T> ApiKey<T> {
@@ -84,8 +96,8 @@ impl<T> ApiKey<T> {
     /// To access the underlying string, use `.as_ref()` on the returned `SecureString`:
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKeyGenerator, Environment};
-    /// # let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+    /// # use api_keys_simplified::{ApiKeyManager, Environment};
+    /// # let generator = ApiKeyManager::init_default_config("sk").unwrap();
     /// # let api_key = generator.generate(Environment::production()).unwrap();
     /// let key_str: &str = api_key.key().as_ref();
     /// ```
@@ -96,14 +108,6 @@ impl<T> ApiKey<T> {
     /// Be careful NOT to clone or log the value unnecessarily.
     pub fn key(&self) -> &SecureString {
         &self.key
-    }
-
-    pub fn verify(&self, stored_hash: impl AsRef<str>) -> Result<bool> {
-        KeyValidator::verify(self.key.as_ref(), stored_hash.as_ref())
-    }
-
-    pub fn verify_checksum(&self) -> Result<bool> {
-        KeyGenerator::verify_checksum(self.key.as_ref())
     }
 
     /// Returns Prefix and Environment.
@@ -144,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_full_lifecycle() {
-        let generator = ApiKeyGenerator::init_default_config("sk").unwrap();
+        let generator = ApiKeyManager::init_default_config("sk").unwrap();
         let api_key = generator.generate(Environment::production()).unwrap();
 
         let key_str = api_key.key();
@@ -153,16 +157,17 @@ mod tests {
         assert!(key_str.as_ref().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
-        assert!(KeyValidator::verify(key_str.as_ref(), hash_str).unwrap());
-        assert!(!KeyValidator::verify("wrong_key", hash_str).unwrap());
+        assert!(generator.verify(key_str, hash_str).unwrap());
+        let wrong_key = SecureString::from("wrong_key".to_string());
+        assert!(!generator.verify(&wrong_key, hash_str).unwrap());
     }
 
     #[test]
     fn test_different_presets() {
-        let balanced_gen = ApiKeyGenerator::init_default_config("pk").unwrap();
+        let balanced_gen = ApiKeyManager::init_default_config("pk").unwrap();
         let balanced = balanced_gen.generate(Environment::test()).unwrap();
 
-        let high_sec_gen = ApiKeyGenerator::init_high_security_config("sk").unwrap();
+        let high_sec_gen = ApiKeyManager::init_high_security_config("sk").unwrap();
         let high_sec = high_sec_gen.generate(Environment::Production).unwrap();
 
         assert!(!balanced.key().is_empty());
@@ -186,8 +191,8 @@ mod tests {
             .unwrap()
             .with_checksum(true);
 
-        let generator = ApiKeyGenerator::init("custom", config, HashConfig::default()).unwrap();
+        let generator = ApiKeyManager::init("custom", config, HashConfig::default()).unwrap();
         let key = generator.generate(Environment::production()).unwrap();
-        assert!(key.verify_checksum().unwrap());
+        assert!(generator.verify_checksum(key.key()).unwrap());
     }
 }
