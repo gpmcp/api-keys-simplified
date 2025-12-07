@@ -134,7 +134,7 @@ impl KeyGenerator {
                 hasher.update(key.as_ref());
                 let hash = hasher.finalize();
                 // Take first 16 hex characters (64 bits) - provides 2^64 collision resistance
-                (&hash.to_hex()[..16]).to_string()
+                hash.to_hex()[..16].to_string()
             }
         }
     }
