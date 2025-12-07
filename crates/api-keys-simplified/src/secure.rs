@@ -3,11 +3,11 @@
 //! This module provides types that automatically zero their memory on drop,
 //! preventing sensitive data from lingering in memory after use.
 
-use derive_more::{AsRef, From};
 use std::fmt;
+use derive_more::{AsRef, From};
 use subtle::ConstantTimeEq;
-use zeroize::__internal::AssertZeroize;
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::__internal::AssertZeroize;
 
 /// A secure string that automatically zeros its memory on drop.
 ///
@@ -28,12 +28,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 ///
 /// This type **intentionally does NOT implement `Deref`** to maintain security:
 ///
-/// - **Explicit access**: Requires `.as_ref()` call, making code auditable
+/// - **Explicit access**: Requires `.expose_secret()` call, making code auditable
 /// - **Prevents silent leakage**: No implicit coercion to `&str` in logs/errors
-/// - **Grep-able security**: Easy to audit with `git grep "\.as_ref\(\)"`
+/// - **Grep-able security**: Easy to audit with `git grep "\.expose_secret\(\)"`
 /// - **Industry standard**: Aligns with `secrecy` crate's proven approach
 ///
-/// The slight ergonomic cost of typing `.as_ref()` is a worthwhile
+/// The slight ergonomic cost of typing `.expose_secret()` is a worthwhile
 /// security trade-off that prevents accidental secret exposure.
 /// ```
 #[derive(Debug, derive_more::Display, Zeroize, ZeroizeOnDrop)]
@@ -44,7 +44,7 @@ pub struct LogProof<T: AssertZeroize>(T);
 
 impl PartialEq for SecureString {
     fn eq(&self, other: &Self) -> bool {
-        self.0 .0.as_bytes().ct_eq(other.0 .0.as_bytes()).into()
+        self.0.0.as_bytes().ct_eq(other.0.0.as_bytes()).into()
     }
 }
 
@@ -57,26 +57,33 @@ impl SecureString {
         Self(LogProof(s))
     }
 
+    /// Exposes the secret as a string slice.
+    ///
+    /// # Security Warning
+    ///
+    /// This method intentionally has a clear name to make secret access
+    /// visible in code reviews and audits. The secret should only be exposed
+    /// when absolutely necessary (e.g., for hashing, verification, or transmission).
+    ///
+    /// Never log or display the returned value.
+    pub fn expose_secret(&self) -> &str {
+        &self.0.0
+    }
+
     /// Returns the length of the string in bytes.
     pub fn len(&self) -> usize {
-        self.0 .0.len()
+        self.0.0.len()
     }
 
     /// Returns true if the string is empty.
     pub fn is_empty(&self) -> bool {
-        self.0 .0.is_empty()
+        self.0.0.is_empty()
     }
 }
 
 impl From<String> for SecureString {
     fn from(s: String) -> Self {
         Self::new(s)
-    }
-}
-
-impl AsRef<str> for SecureString {
-    fn as_ref(&self) -> &str {
-        &self.0 .0
     }
 }
 
@@ -101,7 +108,7 @@ mod tests {
     #[test]
     fn test_secure_string_creation() {
         let secret = SecureString::from("my_secret".to_string());
-        assert_eq!(secret.as_ref(), "my_secret");
+        assert_eq!(secret.expose_secret(), "my_secret");
         assert_eq!(secret.len(), 9);
         assert!(!secret.is_empty());
     }
@@ -129,9 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn test_as_ref() {
+    fn test_expose_secret() {
         let secret = SecureString::from("test".to_string());
-        let reference: &str = secret.as_ref();
+        let reference: &str = secret.expose_secret();
         assert_eq!(reference, "test");
     }
 }

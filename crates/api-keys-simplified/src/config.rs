@@ -182,8 +182,8 @@ impl KeyConfig {
         Ok(self)
     }
 
-    pub fn with_checksum(mut self) -> Self {
-        self.include_checksum = true;
+    pub fn disable_checksum(mut self) -> Self {
+        self.include_checksum = false;
         self
     }
 
@@ -195,7 +195,7 @@ impl KeyConfig {
     pub fn balanced() -> Self {
         Self {
             entropy_bytes: 24,
-            include_checksum: false,
+            include_checksum: true,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
         }
@@ -204,7 +204,7 @@ impl KeyConfig {
     pub fn high_security() -> Self {
         Self {
             entropy_bytes: 32,
-            include_checksum: false,
+            include_checksum: true,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
         }

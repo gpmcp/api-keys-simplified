@@ -77,7 +77,7 @@ mod tests {
         let hash = hasher.hash(&key).unwrap();
 
         let validator = KeyValidator::new(&HashConfig::default()).unwrap();
-        assert!(validator.verify(key.as_ref(), hash.as_ref()).unwrap());
+        assert!(validator.verify(key.expose_secret(), hash.as_ref()).unwrap());
         assert!(!validator.verify("wrong_key", hash.as_ref()).unwrap());
     }
 
@@ -146,11 +146,11 @@ mod tests {
         assert!(result1.is_ok());
         assert!(!result1.unwrap());
 
-        let result2 = validator.verify(valid_key.as_ref(), "invalid_hash_format");
+        let result2 = validator.verify(valid_key.expose_secret(), "invalid_hash_format");
         assert!(result2.is_ok());
         assert!(!result2.unwrap());
 
-        let result3 = validator.verify(valid_key.as_ref(), "not even close to valid");
+        let result3 = validator.verify(valid_key.expose_secret(), "not even close to valid");
         assert!(result3.is_ok());
         assert!(!result3.unwrap());
     }

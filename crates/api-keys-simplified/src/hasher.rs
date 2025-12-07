@@ -38,7 +38,7 @@ impl KeyHasher {
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let hash = argon2
-            .hash_password(key.as_ref().as_bytes(), &salt)
+            .hash_password(key.expose_secret().as_bytes(), &salt)
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         // SECURITY: Hashes are meant to be stored raw

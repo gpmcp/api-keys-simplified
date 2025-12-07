@@ -13,7 +13,7 @@ mod secure_integration_tests {
         // Debug output should not expose the actual key
         let debug_output = format!("{:?}", api_key);
         assert!(debug_output.contains("[REDACTED]"));
-        assert!(!debug_output.contains(api_key.key().as_ref()));
+        assert!(!debug_output.contains(api_key.key().expose_secret()));
 
         // Should still show hash (not sensitive after storage)
         assert!(debug_output.contains("hash"));
@@ -27,8 +27,8 @@ mod secure_integration_tests {
             SecureString::from("key2".to_string()),
         ];
 
-        assert_eq!(keys[0].as_ref(), "key1");
-        assert_eq!(keys[1].as_ref(), "key2");
+        assert_eq!(keys[0].expose_secret(), "key1");
+        assert_eq!(keys[1].expose_secret(), "key2");
 
         // When dropped, all memory should be zeroed
         drop(keys);
@@ -41,7 +41,7 @@ mod secure_integration_tests {
         let api_key = generator.generate(Environment::dev()).unwrap();
 
         // Create another key with the same data for testing
-        let key_str = api_key.key().as_ref().to_string();
+        let key_str = api_key.key().expose_secret().to_string();
         let hash_str = api_key.hash().to_string();
 
         // Create a new ApiKey instance with the same key
@@ -72,7 +72,7 @@ mod secure_integration_tests {
 
         {
             let secret = SecureString::from("temporary_key_12345".to_string());
-            assert_eq!(secret.as_ref(), "temporary_key_12345");
+            assert_eq!(secret.expose_secret(), "temporary_key_12345");
             // Memory will be zeroed when secret goes out of scope
         }
 
@@ -87,7 +87,7 @@ mod secure_integration_tests {
         // Full lifecycle test demonstrating secure memory usage
         let generator = ApiKeyManager::init_default_config("api").unwrap();
         let key1 = generator.generate(Environment::production()).unwrap();
-        let key_str = key1.key().as_ref().to_string();
+        let key_str = key1.key().expose_secret().to_string();
         let hash_str = key1.hash().to_string();
 
         // Drop the original - memory is zeroed automatically

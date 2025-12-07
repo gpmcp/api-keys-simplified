@@ -4,15 +4,14 @@ use std::time::Instant;
 #[test]
 fn test_checksum_prevents_expensive_verification() {
     // This test verifies VULN-1 fix: checksum validation happens BEFORE Argon2
-    let config = KeyConfig::default().with_checksum();
-    let generator = ApiKeyManager::init("dos", config, HashConfig::default()).unwrap();
+    let generator = ApiKeyManager::init_default_config("dos").unwrap();
 
     // Generate a valid key with checksum
     let valid_key = generator.generate(Environment::test()).unwrap();
     let valid_hash = valid_key.hash().to_string();
 
     // Create invalid key with corrupted checksum (but valid format)
-    let key_str = valid_key.key().as_ref();
+    let key_str = valid_key.key().expose_secret();
     let parts: Vec<&str> = key_str.rsplitn(2, '.').collect();
     let key_without_checksum = parts[1];
     let invalid_key_with_bad_checksum = format!("{}.deadbeef", key_without_checksum);
@@ -32,17 +31,12 @@ fn test_checksum_prevents_expensive_verification() {
         "Checksum validation should be fast (< 10ms), took {}ms. This suggests Argon2 was called!",
         duration.as_millis()
     );
-
-    println!(
-        "✅ Invalid checksum rejected in {}μs (Argon2 bypassed)",
-        duration.as_micros()
-    );
 }
 
 #[test]
 fn test_valid_checksum_proceeds_to_argon2() {
     // Verify that valid checksums still go through Argon2 verification
-    let config = KeyConfig::default().with_checksum();
+    let config = KeyConfig::default().disable_checksum();
     let generator = ApiKeyManager::init("verify", config, HashConfig::default()).unwrap();
 
     let key = generator.generate(Environment::production()).unwrap();
@@ -60,11 +54,6 @@ fn test_valid_checksum_proceeds_to_argon2() {
         "Valid checksum should proceed to Argon2 (> 10ms), took only {}ms",
         duration.as_millis()
     );
-
-    println!(
-        "✅ Valid key verified in {}ms (Argon2 executed)",
-        duration.as_millis()
-    );
 }
 
 #[test]
@@ -72,13 +61,13 @@ fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
     let with_checksum = ApiKeyManager::init(
         "dos1",
-        KeyConfig::default().with_checksum(),
+        KeyConfig::default(),
         HashConfig::default(),
     )
     .unwrap();
 
     let without_checksum =
-        ApiKeyManager::init("dos2", KeyConfig::default(), HashConfig::default()).unwrap();
+        ApiKeyManager::init("dos2", KeyConfig::default().disable_checksum(), HashConfig::default()).unwrap();
 
     // Generate keys
     let key_with = with_checksum.generate(Environment::test()).unwrap();
@@ -107,20 +96,6 @@ fn test_dos_protection_comparison() {
     }
     let without_checksum_time = start.elapsed();
 
-    println!("📊 DoS Protection Comparison:");
-    println!(
-        "   With checksum:    {}ms for 10 invalid keys",
-        with_checksum_time.as_millis()
-    );
-    println!(
-        "   Without checksum: {}ms for 10 invalid keys",
-        without_checksum_time.as_millis()
-    );
-    println!(
-        "   Speedup: {}x faster",
-        without_checksum_time.as_millis() / with_checksum_time.as_millis().max(1)
-    );
-
     // With checksum should be SIGNIFICANTLY faster (at least 10x)
     assert!(
         with_checksum_time < without_checksum_time / 10,
@@ -131,12 +106,12 @@ fn test_dos_protection_comparison() {
 }
 
 #[test]
-fn test_checksum_not_enabled_still_works() {
-    // Verify that when checksum is NOT enabled, verify() still works
+fn test_without_checksum_still_works() {
+    // Verify that when checksum is disabled, verify() still works
     // (but doesn't get DoS protection)
     let generator = ApiKeyManager::init(
         "nochk",
-        KeyConfig::default(), // No checksum
+        KeyConfig::default().disable_checksum(),
         HashConfig::default(),
     )
     .unwrap();
@@ -149,24 +124,4 @@ fn test_checksum_not_enabled_still_works() {
     // Invalid key should still fail
     let invalid = SecureString::from("nochk-test-invalid".to_string());
     assert!(!generator.verify(&invalid, key.hash()).unwrap());
-}
-
-#[test]
-fn test_manual_checksum_verification_still_available() {
-    // Users can still manually call verify_checksum if they want
-    let config = KeyConfig::default().with_checksum();
-    let generator = ApiKeyManager::init("manual", config, HashConfig::default()).unwrap();
-
-    let key = generator.generate(Environment::production()).unwrap();
-
-    // Manual checksum check
-    assert!(generator.verify_checksum(key.key()).unwrap());
-
-    // Corrupted checksum
-    let key_str = key.key().as_ref();
-    let parts: Vec<&str> = key_str.rsplitn(2, '.').collect();
-    let corrupted = format!("{}.ffffffff", parts[1]);
-    let corrupted_key = SecureString::from(corrupted);
-
-    assert!(!generator.verify_checksum(&corrupted_key).unwrap());
 }

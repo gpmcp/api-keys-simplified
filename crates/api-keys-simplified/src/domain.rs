@@ -94,7 +94,7 @@ impl ApiKeyManager {
             return Ok(false);
         }
 
-        self.validator.verify(key.as_ref(), stored_hash.as_ref())
+        self.validator.verify(key.expose_secret(), stored_hash.as_ref())
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
@@ -105,13 +105,13 @@ impl ApiKeyManager {
 impl<T> ApiKey<T> {
     /// Returns a reference to the secure API key.
     ///
-    /// To access the underlying string, use `.as_ref()` on the returned `SecureString`:
+    /// To access the underlying string, use `.expose_secret()` on the returned `SecureString`:
     ///
     /// ```rust
     /// # use api_keys_simplified::{ApiKeyManager, Environment};
     /// # let generator = ApiKeyManager::init_default_config("sk").unwrap();
     /// # let api_key = generator.generate(Environment::production()).unwrap();
-    /// let key_str: &str = api_key.key().as_ref();
+    /// let key_str: &str = api_key.key().expose_secret();
     /// ```
     ///
     /// # Security Note
@@ -135,11 +135,17 @@ impl ApiKey<NoHash> {
             hash: Hash(LogProof::from(hash)),
         })
     }
+    pub fn into_key(self) -> SecureString {
+        self.key
+    }
 }
 
 impl ApiKey<Hash> {
     pub fn hash(&self) -> &str {
         self.hash.0.as_ref()
+    }
+    pub fn into_key(self) -> SecureString {
+        self.key
     }
 }
 
@@ -155,7 +161,7 @@ mod tests {
         let key_str = api_key.key();
         let hash_str = api_key.hash();
 
-        assert!(key_str.as_ref().starts_with("sk-live-"));
+        assert!(key_str.expose_secret().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
         assert!(generator.verify(key_str, hash_str).unwrap());
@@ -177,7 +183,9 @@ mod tests {
 
     #[test]
     fn test_custom_config() {
-        let config = KeyConfig::new().with_entropy(32).unwrap().with_checksum();
+        let config = KeyConfig::new()
+            .with_entropy(32)
+            .unwrap();
 
         let generator = ApiKeyManager::init("custom", config, HashConfig::default()).unwrap();
         let key = generator.generate(Environment::production()).unwrap();

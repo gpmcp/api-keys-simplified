@@ -10,26 +10,17 @@ fn test_custom_entropy() {
 }
 
 #[test]
-fn test_with_checksum() {
-    let config = KeyConfig::default().with_checksum();
-    let generator = ApiKeyManager::init("pk", config, HashConfig::default()).unwrap();
-    let key = generator.generate(Environment::production()).unwrap();
-
-    assert!(generator.verify_checksum(key.key()).unwrap());
-}
-
-#[test]
 fn test_without_checksum() {
-    let config = KeyConfig::default();
+    let config = KeyConfig::default().disable_checksum();
     let generator = ApiKeyManager::init("pk", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
 
     // Environment "live" means production, Base64URL can contain underscores and hyphens
     // Key format with dash separator: pk-live-{base64url_data}
     // No checksum, so no dot at the end
-    assert!(key.key().as_ref().starts_with("pk-live-"));
+    assert!(key.key().expose_secret().starts_with("pk-live-"));
     assert!(
-        !key.key().as_ref().contains('.'),
+        !key.key().expose_secret().contains('.'),
         "Should not have checksum dot"
     );
 }

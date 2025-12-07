@@ -25,7 +25,7 @@ fn test_different_keys_same_hash() {
 
 #[test]
 fn test_checksum_validation() {
-    let config = KeyConfig::default().with_checksum();
+    let config = KeyConfig::default();
     let generator = ApiKeyManager::init("chk", config, HashConfig::default()).unwrap();
     let with_checksum = generator.generate(Environment::test()).unwrap();
     assert!(generator.verify_checksum(with_checksum.key()).unwrap());
@@ -33,7 +33,7 @@ fn test_checksum_validation() {
     // Corrupt the checksum
     let corrupted = format!(
         "{}_corrupt",
-        &with_checksum.key().as_ref()[..with_checksum.key().len() - 8]
+        &with_checksum.key().expose_secret()[..with_checksum.key().len() - 8]
     );
     let corrupted_key = api_keys_simplified::SecureString::from(corrupted);
     assert!(!generator.verify_checksum(&corrupted_key).unwrap());
@@ -58,7 +58,7 @@ fn test_collision_resistance() {
     let generator = ApiKeyManager::init_default_config("text").unwrap();
     for _ in 0..count {
         let key = generator.generate(Environment::test()).unwrap();
-        keys.insert(key.key().as_ref().to_string());
+        keys.insert(key.key().expose_secret().to_string());
     }
 
     // All keys should be unique
@@ -67,12 +67,12 @@ fn test_collision_resistance() {
 
 #[test]
 fn test_key_format_consistency() {
-    let config = KeyConfig::default().with_checksum();
+    let config = KeyConfig::default();
     let generator = ApiKeyManager::init("format", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::test()).unwrap();
-    let key_str = key.key().as_ref();
+    let key_str = key.key().expose_secret();
 
-    // With dash separator and checksum: format-test-data.checksum = 1 dot (for checksum only)
+    // With dash separator and checksum (enabled by default): format-test-data.checksum = 1 dot
     assert_eq!(key_str.matches('.').count(), 1);
 
     // Should not contain spaces or special characters except . and base64url chars (A-Za-z0-9-_)
