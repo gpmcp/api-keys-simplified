@@ -39,7 +39,9 @@ mod hasher;
 mod secure;
 mod validator;
 
-pub use config::{ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator};
+pub use config::{
+    ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator,
+};
 pub use domain::{ApiKey, ApiKeyManager, Hash, NoHash};
 pub use error::{ConfigError, Error, Result};
 pub use secure::{SecureString, SecureStringExt};

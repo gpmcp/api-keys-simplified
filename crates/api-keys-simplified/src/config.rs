@@ -6,10 +6,10 @@ use strum::{IntoEnumIterator, IntoStaticStr};
 
 /// Key version for backward compatibility and migration.
 /// Allows different key formats to coexist during transitions.
-/// 
+///
 /// Version 0 represents no explicit version (backward compatible with existing keys).
 /// Format: prefix{sep}env{sep}base64[.checksum]
-/// 
+///
 /// Versions 1+ will have version between prefix and environment:
 /// Format: prefix{sep}v{N}{sep}env{sep}base64[.checksum]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -19,30 +19,30 @@ impl KeyVersion {
     /// No version in key
     /// Format: prefix-env-data.checksum
     pub const NONE: Self = KeyVersion(0);
-    
+
     /// Version 1 - First versioned format
     /// Format: prefix-v1-env-data.checksum
     pub const V1: Self = KeyVersion(1);
-    
+
     /// Version 2
     /// Format: prefix-v2-env-data.checksum
     pub const V2: Self = KeyVersion(2);
-    
+
     /// Creates a new key version with the given number
     pub const fn new(version: u32) -> Self {
         KeyVersion(version)
     }
-    
+
     /// Returns the version number
     pub const fn number(&self) -> u32 {
         self.0
     }
-    
+
     /// Returns true if this version should be included in the key
     pub const fn is_versioned(&self) -> bool {
         self.0 > 0
     }
-    
+
     /// Returns the version component string for key generation
     /// Returns empty string for version 0 (backward compatibility)
     pub fn component(&self) -> String {
@@ -128,7 +128,7 @@ impl KeyPrefix {
         }) {
             return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
-        
+
         // Prevent prefixes that look like version numbers (e.g., "v1", "v2", "v42")
         // This would conflict with the version component in the key format
         if prefix.starts_with('v') {
@@ -138,7 +138,7 @@ impl KeyPrefix {
                 }
             }
         }
-        
+
         Ok(Self(prefix))
     }
 
@@ -338,14 +338,14 @@ mod tests {
         assert!(KeyPrefix::new("v42").is_err());
         assert!(KeyPrefix::new("v100").is_err());
         assert!(KeyPrefix::new("v0").is_err());
-        
+
         // Should allow prefixes that start with 'v' but aren't version-like
         assert!(KeyPrefix::new("version").is_ok());
         assert!(KeyPrefix::new("vault").is_ok());
         assert!(KeyPrefix::new("v_key").is_ok());
         assert!(KeyPrefix::new("v1a").is_ok());
         assert!(KeyPrefix::new("v1_").is_ok());
-        
+
         // Edge case: just 'v' should be allowed
         assert!(KeyPrefix::new("v").is_ok());
     }

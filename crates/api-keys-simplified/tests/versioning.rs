@@ -11,7 +11,7 @@ fn test_unversioned_key_format() {
     // Unversioned keys should have format: prefix-env-data.checksum
     assert!(key_str.starts_with("sk-live-"));
     assert!(key_str.contains('.'), "Should have checksum separator");
-    
+
     // Should NOT contain version component
     assert!(!key_str.contains("-v1-"));
     assert!(!key_str.contains("-v2-"));
@@ -58,7 +58,7 @@ fn test_version_constants() {
     assert_eq!(KeyVersion::NONE.number(), 0);
     assert_eq!(KeyVersion::V1.number(), 1);
     assert_eq!(KeyVersion::V2.number(), 2);
-    
+
     assert!(!KeyVersion::NONE.is_versioned());
     assert!(KeyVersion::V1.is_versioned());
     assert!(KeyVersion::V2.is_versioned());
@@ -154,7 +154,7 @@ fn test_versioned_keys_without_checksum() {
     // Should have version but no checksum separator
     assert!(key_str.starts_with("sk-v1-live-"));
     assert!(!key_str.contains('.'), "Should NOT have checksum separator");
-    
+
     // Should still verify (checksum validation is skipped)
     assert!(manager.verify(key.key(), key.hash()).unwrap());
 }
@@ -205,7 +205,7 @@ fn test_version_equality() {
     assert_eq!(KeyVersion::NONE, KeyVersion::new(0));
     assert_eq!(KeyVersion::V1, KeyVersion::new(1));
     assert_eq!(KeyVersion::V2, KeyVersion::new(2));
-    
+
     assert_ne!(KeyVersion::V1, KeyVersion::V2);
     assert_ne!(KeyVersion::NONE, KeyVersion::V1);
 }

@@ -65,7 +65,7 @@ impl KeyGenerator {
         } else {
             sep.len() + version_component.len()
         };
-        
+
         let capacity = self.prefix.as_str().len()
             + version_length
             + sep.len()
@@ -76,13 +76,13 @@ impl KeyGenerator {
 
         let mut key = Vec::with_capacity(capacity);
         key.extend_from_slice(self.prefix.as_str().as_bytes());
-        
+
         // Add version component if present (between prefix and env)
         if !version_component.is_empty() {
             key.extend_from_slice(sep.as_bytes());
             key.extend_from_slice(version_component.as_bytes());
         }
-        
+
         key.extend_from_slice(sep.as_bytes());
         key.extend_from_slice(env.as_bytes());
         key.extend_from_slice(sep.as_bytes());
