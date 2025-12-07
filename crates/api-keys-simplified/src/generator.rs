@@ -34,7 +34,7 @@ impl KeyGenerator {
         //
         // Base64 without padding: ceil(input_len * 4 / 3) bytes
         // For URL_SAFE_NO_PAD: exact formula is (input_len + 2) / 3 * 4
-        let encoded_len = (random_bytes.len() + 2) / 3 * 4;
+        let encoded_len = random_bytes.len().div_ceil(3) * 4;
         let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
 
         URL_SAFE_NO_PAD
@@ -109,7 +109,8 @@ impl KeyGenerator {
             None => return Ok(false),
         };
 
-        let computed = Self::compute_checksum(key_without_checksum, self.config.checksum_algorithm());
+        let computed =
+            Self::compute_checksum(key_without_checksum, self.config.checksum_algorithm());
 
         // Use constant-time comparison to prevent timing attacks
         Ok(checksum.as_bytes().ct_eq(computed.as_bytes()).into())
@@ -133,7 +134,7 @@ impl KeyGenerator {
                 hasher.update(key.as_ref());
                 let hash = hasher.finalize();
                 // Take first 16 hex characters (64 bits) - provides 2^64 collision resistance
-                format!("{}", &hash.to_hex()[..16])
+                (&hash.to_hex()[..16]).to_string()
             }
         }
     }
@@ -282,7 +283,8 @@ mod tests {
 
     #[test]
     fn test_verify_checksum_dos_protection() {
-        let generator = ApiKeyManager::init("sk", KeyConfig::balanced(), HashConfig::default()).unwrap();
+        let generator =
+            ApiKeyManager::init("sk", KeyConfig::balanced(), HashConfig::default()).unwrap();
 
         // Test oversized key rejection
         let huge_key = SecureString::from("a".repeat(1000));
@@ -297,10 +299,6 @@ mod tests {
         let result = generator.verify_checksum(&at_limit);
         assert!(result.is_ok()); // No DoS error, just validation result
     }
-
-
-
-
 
     #[test]
     fn test_entropy_variations() {
@@ -355,7 +353,11 @@ mod tests {
         // Third part is data
         assert!(data_part.len() > 0);
         // Checksum should be 16 hex characters for BLAKE3 (default)
-        assert_eq!(checksum.len(), 16, "Checksum should be 16 hex characters for BLAKE3");
+        assert_eq!(
+            checksum.len(),
+            16,
+            "Checksum should be 16 hex characters for BLAKE3"
+        );
     }
 
     #[test]
@@ -364,7 +366,9 @@ mod tests {
         let env = Environment::Production;
 
         // Test with Slash
-        let config_slash = KeyConfig::default().with_separator(Separator::Slash).with_checksum();
+        let config_slash = KeyConfig::default()
+            .with_separator(Separator::Slash)
+            .with_checksum();
         let generator_slash = KeyGenerator::new(prefix.clone(), config_slash);
         let key_slash = generator_slash.generate(env.clone()).unwrap();
         assert!(key_slash.as_ref().contains('/'));
@@ -372,7 +376,9 @@ mod tests {
         assert!(generator_slash.verify_checksum(&key_slash).unwrap());
 
         // Test with Dash (default)
-        let config_dash = KeyConfig::default().with_separator(Separator::Dash).with_checksum();
+        let config_dash = KeyConfig::default()
+            .with_separator(Separator::Dash)
+            .with_checksum();
         let generator_dash = KeyGenerator::new(prefix.clone(), config_dash);
         let key_dash = generator_dash.generate(env.clone()).unwrap();
         assert!(key_dash.as_ref().contains('-'));
@@ -382,8 +388,7 @@ mod tests {
         assert!(generator_dash.verify_checksum(&key_dash).unwrap());
 
         // Test with Tilde
-        let config_tilde = KeyConfig::default()
-            .with_separator(Separator::Tilde);
+        let config_tilde = KeyConfig::default().with_separator(Separator::Tilde);
         let generator_tilde = KeyGenerator::new(prefix, config_tilde);
         let key_tilde = generator_tilde.generate(env).unwrap();
         assert!(key_tilde.as_ref().contains('~'));

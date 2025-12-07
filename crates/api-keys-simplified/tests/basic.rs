@@ -60,5 +60,3 @@ fn test_key_uniqueness() {
     assert_ne!(key1.key().as_ref(), key2.key().as_ref());
     assert_ne!(key1.hash(), key2.hash());
 }
-
-
