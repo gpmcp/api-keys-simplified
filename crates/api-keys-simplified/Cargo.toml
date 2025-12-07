@@ -23,6 +23,7 @@ strum.workspace = true
 lazy_static.workspace = true
 derive-getters.workspace = true
 derive_more.workspace = true
+secrecy.workspace = true
 
 [features]
 default = []

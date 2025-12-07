@@ -68,11 +68,12 @@ impl KeyValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ExposeSecret;
     use crate::{config::HashConfig, hasher::KeyHasher, SecureString};
 
     #[test]
     fn test_verification() {
-        let key = SecureString::new("sk_live_testkey123".to_string());
+        let key = SecureString::from("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&key).unwrap();
 
@@ -96,7 +97,7 @@ mod tests {
     #[test]
     fn test_oversized_key_rejection() {
         let oversized_key = "a".repeat(513); // Exceeds MAX_KEY_LENGTH
-        let valid_key = SecureString::new("valid_key".to_string());
+        let valid_key = SecureString::from("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
@@ -118,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_boundary_key_length() {
-        let valid_key = SecureString::new("valid_key".to_string());
+        let valid_key = SecureString::from("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
@@ -138,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_timing_oracle_protection() {
-        let valid_key = SecureString::new("sk_live_testkey123".to_string());
+        let valid_key = SecureString::from("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let valid_hash = hasher.hash(&valid_key).unwrap();
 

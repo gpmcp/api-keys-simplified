@@ -1,4 +1,5 @@
 use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig};
+use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 #[test]
 fn test_custom_entropy() {

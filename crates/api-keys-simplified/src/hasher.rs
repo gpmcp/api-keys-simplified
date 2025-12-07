@@ -7,6 +7,7 @@ use crate::{
     config::HashConfig,
     error::{OperationError, Result},
     SecureString,
+    ExposeSecret,
 };
 
 #[derive(Clone)]
@@ -53,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_hashing() {
-        let key = SecureString::new("sk_test_abc123xyz789".to_string());
+        let key = SecureString::from("sk_test_abc123xyz789".to_string());
         let config = HashConfig::default();
         let hasher = KeyHasher::new(config);
 
@@ -66,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_different_configs() {
-        let key = SecureString::new("test_key".to_string());
+        let key = SecureString::from("test_key".to_string());
 
         let balanced_hasher = KeyHasher::new(HashConfig::balanced());
         let balanced_hash = balanced_hasher.hash(&key).unwrap();

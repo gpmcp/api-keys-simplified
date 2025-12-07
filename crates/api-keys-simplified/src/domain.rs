@@ -1,5 +1,4 @@
 use crate::error::ConfigError;
-use crate::secure::LogProof;
 use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
     error::Result,
@@ -8,6 +7,7 @@ use crate::{
     secure::SecureString,
     validator::KeyValidator,
     HashConfig,
+    ExposeSecret,
 };
 use derive_getters::Getters;
 use std::fmt::Debug;
@@ -31,9 +31,9 @@ pub struct ApiKeyManager {
 // FIXME: Need better naming
 /// Hash can be safely stored as String
 /// in memory without having to worry about
-/// zeroizing. Additionally, it's LogProof out of the box.
+/// zeroizing. Hashes are not secrets and are meant to be stored.
 #[derive(Debug)]
-pub struct Hash(LogProof<String>);
+pub struct Hash(String);
 #[derive(Debug)]
 pub struct NoHash;
 
@@ -109,7 +109,7 @@ impl<T> ApiKey<T> {
     /// To access the underlying string, use `.expose_secret()` on the returned `SecureString`:
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManager, Environment};
+    /// # use api_keys_simplified::{ApiKeyManager, Environment, ExposeSecret};
     /// # let generator = ApiKeyManager::init_default_config("sk").unwrap();
     /// # let api_key = generator.generate(Environment::production()).unwrap();
     /// let key_str: &str = api_key.key().expose_secret();
@@ -133,7 +133,7 @@ impl ApiKey<NoHash> {
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash(LogProof::from(hash)),
+            hash: Hash(hash),
         })
     }
     pub fn into_key(self) -> SecureString {
@@ -143,7 +143,7 @@ impl ApiKey<NoHash> {
 
 impl ApiKey<Hash> {
     pub fn hash(&self) -> &str {
-        self.hash.0.as_ref()
+        &self.hash.0
     }
     pub fn into_key(self) -> SecureString {
         self.key
@@ -153,6 +153,7 @@ impl ApiKey<Hash> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ExposeSecret, SecureStringExt};
 
     #[test]
     fn test_full_lifecycle() {

@@ -1,28 +1,32 @@
 //! Secure memory handling for sensitive data
-//!
-//! This module provides types that automatically zero their memory on drop,
-//! preventing sensitive data from lingering in memory after use.
 
-use derive_more::{AsRef, From};
-use std::fmt;
+use secrecy::{ExposeSecret, SecretString};
 use subtle::ConstantTimeEq;
-use zeroize::__internal::AssertZeroize;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A secure string that automatically zeros its memory on drop.
 ///
-/// This type should be used for any sensitive data like API keys, tokens,
-/// or passwords to prevent potential memory disclosure through:
-/// - Core dumps
-/// - Swap files
-/// - Memory scanning tools
-/// - Debuggers
+/// This is a type alias for `secrecy::SecretString`, which provides:
+/// - Automatic memory zeroing on drop
+/// - Prevention of accidental logging via Debug/Display
+/// - Industry-standard security practices
 ///
 /// # Security
 ///
 /// The contained data is automatically zeroed when the value is dropped,
 /// using the `zeroize` crate which provides compiler-fence-backed guarantees
 /// that the zeroing operation won't be optimized away.
+///
+/// # Usage
+///
+/// Access the underlying string using `.expose_secret()`:
+///
+/// ```rust
+/// use api_keys_simplified::SecureString;
+/// use api_keys_simplified::ExposeSecret;
+///
+/// let secret = SecureString::from("my_secret".to_string());
+/// let value: &str = secret.expose_secret();
+/// ```
 ///
 /// # Design: Why No `Deref<Target=str>`?
 ///
@@ -31,73 +35,37 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// - **Explicit access**: Requires `.expose_secret()` call, making code auditable
 /// - **Prevents silent leakage**: No implicit coercion to `&str` in logs/errors
 /// - **Grep-able security**: Easy to audit with `git grep "\.expose_secret\(\)"`
-/// - **Industry standard**: Aligns with `secrecy` crate's proven approach
-///
-/// The slight ergonomic cost of typing `.expose_secret()` is a worthwhile
-/// security trade-off that prevents accidental secret exposure.
-/// ```
-#[derive(Debug, derive_more::Display, Zeroize, ZeroizeOnDrop)]
-pub struct SecureString(LogProof<String>);
+/// - **Industry standard**: Uses the battle-tested `secrecy` crate
+pub type SecureString = SecretString;
 
-#[derive(From, AsRef, Zeroize, ZeroizeOnDrop)]
-pub struct LogProof<T: AssertZeroize>(T);
-
-impl PartialEq for SecureString {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 .0.as_bytes().ct_eq(other.0 .0.as_bytes()).into()
-    }
-}
-
-impl SecureString {
-    /// Creates a new SecureString from a String.
-    ///
-    /// The original string is moved and will be zeroed when this
-    /// SecureString is dropped.
-    pub fn new(s: String) -> Self {
-        Self(LogProof(s))
-    }
-
-    /// Exposes the secret as a string slice.
-    ///
-    /// # Security Warning
-    ///
-    /// This method intentionally has a clear name to make secret access
-    /// visible in code reviews and audits. The secret should only be exposed
-    /// when absolutely necessary (e.g., for hashing, verification, or transmission).
-    ///
-    /// Never log or display the returned value.
-    pub fn expose_secret(&self) -> &str {
-        &self.0 .0
-    }
-
+/// Extension trait to add convenience methods to SecureString
+pub trait SecureStringExt {
     /// Returns the length of the string in bytes.
-    pub fn len(&self) -> usize {
-        self.0 .0.len()
-    }
+    fn len(&self) -> usize;
 
     /// Returns true if the string is empty.
-    pub fn is_empty(&self) -> bool {
-        self.0 .0.is_empty()
-    }
+    fn is_empty(&self) -> bool;
+
+    /// Constant time eq
+    // FIXME: we can add wrapper to secure
+    // string and impl PartialEq
+    fn eq(&self, other: &Self) -> bool;
 }
 
-impl From<String> for SecureString {
-    fn from(s: String) -> Self {
-        Self::new(s)
+impl SecureStringExt for SecureString {
+    fn len(&self) -> usize {
+        self.expose_secret().len()
     }
-}
 
-// Prevent accidental logging of sensitive data
-impl<T: AssertZeroize> fmt::Debug for LogProof<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("LogProof([REDACTED])")
+    fn is_empty(&self) -> bool {
+        self.expose_secret().is_empty()
     }
-}
 
-// Prevent accidental display of sensitive data
-impl<T: AssertZeroize> fmt::Display for LogProof<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("[REDACTED]")
+    fn eq(&self, other: &Self) -> bool {
+        self.expose_secret()
+            .as_bytes()
+            .ct_eq(other.expose_secret().as_bytes())
+            .into()
     }
 }
 
@@ -107,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_secure_string_creation() {
-        let secret = SecureString::from("my_secret".to_string());
+        let secret = SecretString::from("my_secret");
         assert_eq!(secret.expose_secret(), "my_secret");
         assert_eq!(secret.len(), 9);
         assert!(!secret.is_empty());
@@ -115,29 +83,24 @@ mod tests {
 
     #[test]
     fn test_secure_string_redaction() {
-        let secret = SecureString::from("sensitive_data".to_string());
+        let secret = SecretString::from("sensitive_data");
 
-        // Debug output should be redacted
+        // Debug output should be redacted by secrecy crate
         let debug_output = format!("{:?}", secret);
-        assert_eq!(debug_output, "SecureString(LogProof([REDACTED]))");
         assert!(!debug_output.contains("sensitive_data"));
-
-        // Display output should be redacted
-        let display_output = format!("{}", secret);
-        assert_eq!(display_output, "[REDACTED]");
-        assert!(!display_output.contains("sensitive_data"));
+        assert!(debug_output.contains("Secret"));
     }
 
     #[test]
     fn test_secure_string_empty() {
-        let empty = SecureString::from("".to_string());
+        let empty = SecretString::from("");
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
     }
 
     #[test]
     fn test_expose_secret() {
-        let secret = SecureString::from("test".to_string());
+        let secret = SecretString::from("test".to_string());
         let reference: &str = secret.expose_secret();
         assert_eq!(reference, "test");
     }

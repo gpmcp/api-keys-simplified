@@ -3,6 +3,7 @@ use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
     error::{Error, OperationError, Result},
     SecureString,
+    ExposeSecret,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use subtle::ConstantTimeEq;
@@ -77,7 +78,7 @@ impl KeyGenerator {
             key.append(&mut checksum.into_bytes());
         }
 
-        Ok(SecureString::new(String::from_utf8(key).map_err(|_| {
+        Ok(SecureString::from(String::from_utf8(key).map_err(|_| {
             Error::OperationFailed(OperationError::Generation(
                 "Unable to create valid UTF-8 String".to_string(),
             ))
@@ -133,6 +134,7 @@ impl KeyGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ExposeSecret, SecureStringExt};
     use crate::{ApiKeyManager, HashConfig, Separator};
 
     #[test]
@@ -378,6 +380,6 @@ mod tests {
         let generator_tilde = KeyGenerator::new(prefix, config_tilde);
         let key_tilde = generator_tilde.generate(env).unwrap();
         assert!(key_tilde.expose_secret().contains('~'));
-        assert!(key_tilde.expose_secret().len() > 10);
+        assert!(key_tilde.len() > 10);
     }
 }

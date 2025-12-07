@@ -1,4 +1,5 @@
 use api_keys_simplified::{ApiKeyManager, Environment, SecureString};
+use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 /// Integration tests for secure memory handling
 #[cfg(test)]
@@ -55,14 +56,11 @@ mod secure_integration_tests {
     fn test_secure_string_prevents_accidental_logging() {
         let secret = SecureString::from("super_secret_key_12345".to_string());
 
-        // Common logging patterns should not expose the key
-        let log_msg = format!("Processing key: {}", secret);
-        assert!(!log_msg.contains("super_secret_key_12345"));
-        assert!(log_msg.contains("[REDACTED]"));
-
+        // secrecy::SecretString doesn't implement Display (compile-time protection)
+        // Can only use Debug which redacts
         let debug_log = format!("Key details: {:?}", secret);
         assert!(!debug_log.contains("super_secret_key_12345"));
-        assert!(debug_log.contains("REDACTED"));
+        assert!(debug_log.contains("Secret"));
     }
 
     #[test]

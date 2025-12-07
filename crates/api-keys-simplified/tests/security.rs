@@ -1,4 +1,5 @@
 use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig};
+use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::collections::HashSet;
 
 #[test]

@@ -6,7 +6,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use api_keys_simplified::{ApiKeyManager, Environment};
+//! use api_keys_simplified::{ApiKeyManager, Environment, ExposeSecret};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Generate a new key with checksum (enabled by default for DoS protection)
@@ -42,4 +42,7 @@ mod validator;
 pub use config::{Environment, HashConfig, KeyConfig, KeyPrefix, Separator};
 pub use domain::{ApiKey, ApiKeyManager, Hash, NoHash};
 pub use error::{ConfigError, Error, Result};
-pub use secure::SecureString;
+pub use secure::{SecureString, SecureStringExt};
+
+// Re-export secrecy traits for convenience
+pub use secrecy::ExposeSecret;

@@ -1,3 +1,4 @@
+use api_keys_simplified::ExposeSecret;
 use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig, SecureString};
 use std::time::Instant;
 
