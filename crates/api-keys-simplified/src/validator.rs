@@ -77,7 +77,9 @@ mod tests {
         let hash = hasher.hash(&key).unwrap();
 
         let validator = KeyValidator::new(&HashConfig::default()).unwrap();
-        assert!(validator.verify(key.expose_secret(), hash.as_ref()).unwrap());
+        assert!(validator
+            .verify(key.expose_secret(), hash.as_ref())
+            .unwrap());
         assert!(!validator.verify("wrong_key", hash.as_ref()).unwrap());
     }
 

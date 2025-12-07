@@ -59,15 +59,15 @@ fn test_valid_checksum_proceeds_to_argon2() {
 #[test]
 fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
-    let with_checksum = ApiKeyManager::init(
-        "dos1",
-        KeyConfig::default(),
+    let with_checksum =
+        ApiKeyManager::init("dos1", KeyConfig::default(), HashConfig::default()).unwrap();
+
+    let without_checksum = ApiKeyManager::init(
+        "dos2",
+        KeyConfig::default().disable_checksum(),
         HashConfig::default(),
     )
     .unwrap();
-
-    let without_checksum =
-        ApiKeyManager::init("dos2", KeyConfig::default().disable_checksum(), HashConfig::default()).unwrap();
 
     // Generate keys
     let key_with = with_checksum.generate(Environment::test()).unwrap();

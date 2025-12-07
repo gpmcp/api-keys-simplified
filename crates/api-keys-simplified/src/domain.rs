@@ -94,7 +94,8 @@ impl ApiKeyManager {
             return Ok(false);
         }
 
-        self.validator.verify(key.expose_secret(), stored_hash.as_ref())
+        self.validator
+            .verify(key.expose_secret(), stored_hash.as_ref())
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
@@ -183,9 +184,7 @@ mod tests {
 
     #[test]
     fn test_custom_config() {
-        let config = KeyConfig::new()
-            .with_entropy(32)
-            .unwrap();
+        let config = KeyConfig::new().with_entropy(32).unwrap();
 
         let generator = ApiKeyManager::init("custom", config, HashConfig::default()).unwrap();
         let key = generator.generate(Environment::production()).unwrap();

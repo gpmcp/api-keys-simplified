@@ -3,11 +3,11 @@
 //! This module provides types that automatically zero their memory on drop,
 //! preventing sensitive data from lingering in memory after use.
 
-use std::fmt;
 use derive_more::{AsRef, From};
+use std::fmt;
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 use zeroize::__internal::AssertZeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A secure string that automatically zeros its memory on drop.
 ///
@@ -44,7 +44,7 @@ pub struct LogProof<T: AssertZeroize>(T);
 
 impl PartialEq for SecureString {
     fn eq(&self, other: &Self) -> bool {
-        self.0.0.as_bytes().ct_eq(other.0.0.as_bytes()).into()
+        self.0 .0.as_bytes().ct_eq(other.0 .0.as_bytes()).into()
     }
 }
 
@@ -67,17 +67,17 @@ impl SecureString {
     ///
     /// Never log or display the returned value.
     pub fn expose_secret(&self) -> &str {
-        &self.0.0
+        &self.0 .0
     }
 
     /// Returns the length of the string in bytes.
     pub fn len(&self) -> usize {
-        self.0.0.len()
+        self.0 .0.len()
     }
 
     /// Returns true if the string is empty.
     pub fn is_empty(&self) -> bool {
-        self.0.0.is_empty()
+        self.0 .0.is_empty()
     }
 }
 
