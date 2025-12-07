@@ -2,8 +2,7 @@ use crate::config::ChecksumAlgo;
 use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
     error::{Error, OperationError, Result},
-    SecureString,
-    ExposeSecret,
+    ExposeSecret, SecureString,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use subtle::ConstantTimeEq;
@@ -78,11 +77,13 @@ impl KeyGenerator {
             key.append(&mut checksum.into_bytes());
         }
 
-        Ok(SecureString::from(String::from_utf8(key).map_err(|_| {
-            Error::OperationFailed(OperationError::Generation(
-                "Unable to create valid UTF-8 String".to_string(),
-            ))
-        })?))
+        Ok(SecureString::from(String::from_utf8(key).map_err(
+            |_| {
+                Error::OperationFailed(OperationError::Generation(
+                    "Unable to create valid UTF-8 String".to_string(),
+                ))
+            },
+        )?))
     }
 
     /// Verifies the CRC32 checksum using constant-time comparison.
@@ -134,8 +135,8 @@ impl KeyGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ExposeSecret, SecureStringExt};
     use crate::{ApiKeyManager, HashConfig, Separator};
+    use crate::{ExposeSecret, SecureStringExt};
 
     #[test]
     fn test_base64_url_safe_encoding() {

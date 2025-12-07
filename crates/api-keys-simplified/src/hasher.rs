@@ -6,8 +6,7 @@ use argon2::{
 use crate::{
     config::HashConfig,
     error::{OperationError, Result},
-    SecureString,
-    ExposeSecret,
+    ExposeSecret, SecureString,
 };
 
 #[derive(Clone)]

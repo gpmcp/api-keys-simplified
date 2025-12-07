@@ -6,8 +6,7 @@ use crate::{
     hasher::KeyHasher,
     secure::SecureString,
     validator::KeyValidator,
-    HashConfig,
-    ExposeSecret,
+    ExposeSecret, HashConfig,
 };
 use derive_getters::Getters;
 use std::fmt::Debug;
