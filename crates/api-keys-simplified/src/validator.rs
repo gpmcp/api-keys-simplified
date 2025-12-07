@@ -46,7 +46,7 @@ fn dummy_load() {
     // SECURITY: Perform dummy Argon2 verification to match timing of real verification
     // This prevents timing attacks that could distinguish between "invalid hash format"
     // and "valid hash but wrong password" errors
-    static DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQxMjM0NTY3$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    static DUMMY_HASH: &str = "$argon2id$v=19$m=47104,t=1,p=1$0bJKH8iokgID0PWXnrsXvw$oef42xfOKBQMkCpvoQTeVHLhsYf+EQWMc2u4Ebn1MUo";
     let dummy_password = b"dummy_password_for_timing";
 
     if let Ok(dummy_parsed) = PasswordHash::new(DUMMY_HASH) {

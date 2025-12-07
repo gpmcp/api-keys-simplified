@@ -58,7 +58,6 @@ fn test_collision_resistance() {
     let generator = ApiKeyGenerator::init_default_config("text").unwrap();
     for _ in 0..count {
         let key = generator.generate(Environment::test()).unwrap();
-        // Use .as_ref() to get actual key string, not the redacted Display output
         keys.insert(key.key().as_ref().to_string());
     }
 

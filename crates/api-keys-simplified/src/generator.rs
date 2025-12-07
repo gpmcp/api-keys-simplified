@@ -5,6 +5,7 @@ use crate::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 // Prevent DoS: Validate input length before processing
 const MAX_KEY_LENGTH: usize = 512;
@@ -12,7 +13,7 @@ const MAX_KEY_LENGTH: usize = 512;
 // Prevent DoS: Limit number of parts to prevent memory exhaustion
 const MAX_PARTS: usize = 20; // Generous limit for complex prefixes
 
-const CHECKSUM_SEPARATOR: char = '.';
+const CHECKSUM_SEPARATOR: u8 = b'.';
 
 #[derive(Clone)]
 pub struct KeyGenerator {
@@ -25,49 +26,57 @@ impl KeyGenerator {
         Self { prefix, config }
     }
     pub fn generate(&self, environment: Environment) -> Result<SecureString> {
-        let mut random_bytes = vec![0u8; *self.config.entropy_bytes()];
+        let mut random_bytes = Zeroizing::new(vec![0u8; *self.config.entropy_bytes()]);
         getrandom::fill(&mut random_bytes).map_err(|e| {
             OperationError::Generation(format!("Failed to get random bytes: {}", e))
         })?;
 
         // Use standard URL-safe base64 encoding (no padding)
         // Produces: A-Z, a-z, 0-9, -, _ (all URL-safe, no special encoding needed)
-        let encoded = URL_SAFE_NO_PAD.encode(&random_bytes);
+        let mut encoded = Zeroizing::new(URL_SAFE_NO_PAD.encode(&random_bytes).into_bytes());
 
         // Format: prefix{sep}environment{sep}base64data[.checksum]
         // Using configured separator
         let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
 
-        // Critical: Always wrap it the key to SecureString
-        // What could go wrong?
-        // Creating plain text as a string and
-        // adding checksum to the key using
-        // format!("{key}{sep}{chksum}")
-        // will NOT zeroize the key in memory.
-        // Better approach is to either make changes
-        // in a mutable string and move it, or immediately
-        // move it to SecureString.
-        let key = SecureString::new(format!(
-            "{}{}{}{}{}",
-            self.prefix.as_str(),
-            sep,
-            env,
-            sep,
-            encoded
-        ));
+        // SECURITY: Pre-allocate capacity to prevent reallocations during append operations.
+        // Vec::append() can trigger reallocation if capacity is insufficient, which would
+        // leave the old buffer (containing sensitive key material) in memory without zeroing.
+        // By allocating the exact capacity needed upfront, we ensure a single buffer is used
+        // throughout, which then gets moved to SecureString for proper zeroization on drop.
+        let capacity = self.prefix.as_str().len()
+            + sep.len()
+            + env.len()
+            + sep.len()
+            + encoded.len()
+            + if *self.config.include_checksum() {
+                1 + 8 // dot separator + 8 hex chars for CRC32
+            } else {
+                0
+            };
+
+        let mut key = Vec::with_capacity(capacity);
+        key.extend_from_slice(self.prefix.as_str().as_bytes());
+        key.extend_from_slice(sep.as_bytes());
+        key.extend_from_slice(env.as_bytes());
+        key.extend_from_slice(sep.as_bytes());
+        key.append(&mut encoded);
 
         if *self.config.include_checksum() {
-            let checksum = Self::compute_checksum(key.as_ref());
+            // Compute checksum on the key BEFORE appending the separator and checksum
+            let checksum = Self::compute_checksum(&key);
             // Use . as separator for checksum (always dot, regardless of key separator)
-            Ok(SecureString::new(format!(
-                "{}{CHECKSUM_SEPARATOR}{}",
-                key.as_ref(),
-                checksum
-            )))
-        } else {
-            Ok(key)
+            key.push(CHECKSUM_SEPARATOR);
+            key.append(&mut checksum.into_bytes());
         }
+        println!("{}:{}",key.capacity(), key.len());
+
+        Ok(SecureString::new(String::from_utf8(key).map_err(|_| {
+            Error::OperationFailed(OperationError::Generation(
+                "Unable to create valid UTF-8 String".to_string(),
+            ))
+        })?))
     }
 
     /// Computes a **non-cryptographic** integrity checksum using CRC32.
@@ -81,8 +90,8 @@ impl KeyGenerator {
     ///
     /// The Argon2 hash provides actual cryptographic authentication.
     /// An attacker can find CRC32 collisions with ~65,536 attempts (birthday attack).
-    fn compute_checksum(key: &str) -> String {
-        let crc = crc32fast::hash(key.as_bytes());
+    fn compute_checksum<T: AsRef<[u8]>>(key: T) -> String {
+        let crc = crc32fast::hash(key.as_ref());
         format!("{:08x}", crc) // 8 hex characters for full 32-bit CRC
     }
 

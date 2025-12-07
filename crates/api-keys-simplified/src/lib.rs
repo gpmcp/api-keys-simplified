@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! # API Keys Simplified
 //!
 //! Secure API key generation and validation with sensible defaults.
