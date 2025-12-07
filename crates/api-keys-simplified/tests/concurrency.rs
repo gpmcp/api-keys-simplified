@@ -4,6 +4,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_generation_and_uniqueness() {
     // Tests: RNG thread safety, key uniqueness, synchronized starts
     let generator = Arc::new(ApiKeyManager::init_default_config("sk").unwrap());
@@ -49,6 +50,7 @@ fn test_concurrent_generation_and_uniqueness() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_verification_and_checksum() {
     // Tests: Argon2 thread safety, checksum verification (enabled by default), Arc-wrapped SecureString
     let config = KeyConfig::default();

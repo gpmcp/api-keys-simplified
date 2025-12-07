@@ -5,13 +5,13 @@ resolver = "3"
 [workspace.dependencies]
 argon2 = "0.5"
 password-hash = "0.5"
-subtle = "2.6"
+subtle = "2.6.1"
 getrandom = { version = "0.3", features = ["std"] }
 base64 = "0.22.1"
 thiserror = "2.0.17"
 zeroize = { version = "1.8", features = ["derive"] }
 crc32fast = "1.5.0"
-blake3 = "1.5"
+blake3 = "1.8.2"
 strum = { version = "0.27.2", features = ["derive"] }
 lazy_static = "1.5.0"
 derive-getters = "0.5.0"
