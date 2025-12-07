@@ -128,7 +128,7 @@ impl KeyGenerator {
         // FIXME(ARCHITECTURE): We shouldn't perform this check here
         // This function should just take key and return hash.
         let checksum_len = *self.config.checksum_length();
-        if checksum_len != usize::MIN {
+        if checksum_len == usize::MIN {
             return None;
         }
         match self.config.checksum_algorithm() {
