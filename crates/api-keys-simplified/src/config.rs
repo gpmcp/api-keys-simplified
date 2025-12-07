@@ -1,6 +1,7 @@
 use crate::error::ConfigError;
 use derive_getters::Getters;
 use lazy_static::lazy_static;
+use regex::Regex;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
 
@@ -87,6 +88,8 @@ pub enum Environment {
 
 lazy_static! {
     static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
+    // Regex to detect version patterns: 'v' followed by one or more digits
+    static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
 }
 
 impl Environment {
@@ -129,14 +132,10 @@ impl KeyPrefix {
             return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
 
-        // Prevent prefixes that look like version numbers (e.g., "v1", "v2", "v42")
+        // Prevent prefixes that contain version patterns (e.g., "v1", "v2", "apiv42", "myv1key")
         // This would conflict with the version component in the key format
-        if prefix.starts_with('v') {
-            if let Some(rest) = prefix.strip_prefix('v') {
-                if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
-                    return Err(ConfigError::InvalidPrefixVersionLike);
-                }
-            }
+        if VERSION_PATTERN.is_match(&prefix) {
+            return Err(ConfigError::InvalidPrefixVersionLike);
         }
 
         Ok(Self(prefix))
@@ -332,20 +331,29 @@ mod tests {
 
     #[test]
     fn test_prefix_cannot_be_version_like() {
-        // Should reject version-like prefixes
+        // Should reject any prefix containing version patterns (v followed by digits)
         assert!(KeyPrefix::new("v1").is_err());
         assert!(KeyPrefix::new("v2").is_err());
         assert!(KeyPrefix::new("v42").is_err());
         assert!(KeyPrefix::new("v100").is_err());
         assert!(KeyPrefix::new("v0").is_err());
-
-        // Should allow prefixes that start with 'v' but aren't version-like
+assert!(KeyPrefix::new("apiv1").is_err());
+        assert!(KeyPrefix::new("apiv2").is_err());
+        assert!(KeyPrefix::new("myv42key").is_err());
+        assert!(KeyPrefix::new("testv1").is_err());
+        assert!(KeyPrefix::new("v1beta").is_err());
+        assert!(KeyPrefix::new("betav1").is_err());
+        assert!(KeyPrefix::new("keyv123end").is_err());
+        
+        // Should allow prefixes without version patterns
         assert!(KeyPrefix::new("version").is_ok());
         assert!(KeyPrefix::new("vault").is_ok());
         assert!(KeyPrefix::new("v_key").is_ok());
-        assert!(KeyPrefix::new("v1a").is_ok());
-        assert!(KeyPrefix::new("v1_").is_ok());
-
+        assert!(KeyPrefix::new("vkey").is_ok());
+        assert!(KeyPrefix::new("api").is_ok());
+        assert!(KeyPrefix::new("sk").is_ok());
+        assert!(KeyPrefix::new("versionkey").is_ok());
+        assert!(KeyPrefix::new("apiversion").is_ok());
         // Edge case: just 'v' should be allowed
         assert!(KeyPrefix::new("v").is_ok());
     }
