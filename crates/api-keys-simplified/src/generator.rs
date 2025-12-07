@@ -33,8 +33,8 @@ impl KeyGenerator {
         // was never zeroized before being converted to bytes.
         //
         // Base64 without padding: ceil(input_len * 4 / 3) bytes
-        // For URL_SAFE_NO_PAD: exact formula is (input_len + 2) / 3 * 4
-        let encoded_len = random_bytes.len().div_ceil(3) * 4;
+        // For URL_SAFE_NO_PAD: exact formula is (4 * input_len + 2) / 3
+        let encoded_len = (4 * random_bytes.len() + 2) / 3;
         let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
 
         URL_SAFE_NO_PAD
@@ -51,16 +51,16 @@ impl KeyGenerator {
         // leave the old buffer (containing sensitive key material) in memory without zeroing.
         // By allocating the exact capacity needed upfront, we ensure a single buffer is used
         // throughout, which then gets moved to SecureString for proper zeroization on drop.
+        let checksum_length = match self.config.checksum_length() {
+            0 => 0,
+            n => n + 1, // Plus one for separator.
+        };
         let capacity = self.prefix.as_str().len()
             + sep.len()
             + env.len()
             + sep.len()
             + encoded.len()
-            + if *self.config.include_checksum() {
-                1 + 8 // dot separator + 8 hex chars for CRC32
-            } else {
-                0
-            };
+            + checksum_length;
 
         let mut key = Vec::with_capacity(capacity);
         key.extend_from_slice(self.prefix.as_str().as_bytes());
@@ -69,14 +69,14 @@ impl KeyGenerator {
         key.extend_from_slice(sep.as_bytes());
         key.append(&mut encoded);
 
-        if *self.config.include_checksum() {
-            // Compute checksum on the key BEFORE appending the separator and checksum
-            let checksum = Self::compute_checksum(&key, self.config.checksum_algorithm());
-            // Use . as separator for checksum (always dot, regardless of key separator)
+        // Compute checksum on the key BEFORE appending the separator and checksum
+        if let Some(checksum) = self.compute_checksum(&key) {
             key.push(CHECKSUM_SEPARATOR);
             key.append(&mut checksum.into_bytes());
         }
 
+        // SECURITY: It's SAFE to call from_utf8 here, since
+        // that function will copy the vector.
         Ok(SecureString::from(String::from_utf8(key).map_err(
             |_| {
                 Error::OperationFailed(OperationError::Generation(
@@ -101,7 +101,7 @@ impl KeyGenerator {
             // Perform fake work to prevent timing side-channel attacks
             // This ensures rejection takes similar time as actual verification
             let dummy_key = "dummy_key_for_timing_protection";
-            let _ = Self::compute_checksum(dummy_key, self.config.checksum_algorithm());
+            let _ = self.compute_checksum(dummy_key);
             return Err(Error::InvalidFormat);
         }
 
@@ -111,22 +111,29 @@ impl KeyGenerator {
             None => return Ok(false),
         };
 
-        let computed =
-            Self::compute_checksum(key_without_checksum, self.config.checksum_algorithm());
+        let computed = match self.compute_checksum(key_without_checksum) {
+            Some(computed) => computed,
+            None => return Ok(false),
+        };
 
         // Use constant-time comparison to prevent timing attacks
         Ok(checksum.as_bytes().ct_eq(computed.as_bytes()).into())
     }
 
     /// Computes a integrity checksum.
-    fn compute_checksum<T: AsRef<[u8]>>(key: T, algo: &ChecksumAlgo) -> String {
-        match algo {
+    fn compute_checksum<T: AsRef<[u8]>>(&self, key: T) -> Option<String> {
+        // FIXME(ARCHITECTURE): We shouldn't perform this check here
+        // This function should just take key and return hash.
+        let checksum_len = *self.config.checksum_length();
+        if checksum_len <= 0 {
+            return None;
+        }
+        match self.config.checksum_algorithm() {
             ChecksumAlgo::Black3 => {
                 let mut hasher = blake3::Hasher::new();
                 hasher.update(key.as_ref());
                 let hash = hasher.finalize();
-                // Take first 16 hex characters (64 bits) - provides 2^64 collision resistance
-                hash.to_hex()[..16].to_string()
+                Some(hash.to_hex()[..checksum_len].to_string())
             }
         }
     }
@@ -204,6 +211,7 @@ mod tests {
         let prefix = KeyPrefix::new("sk").unwrap();
         let env = Environment::Production;
         let config = KeyConfig::default();
+        let checksum_len = *config.checksum_length();
 
         let generator = KeyGenerator::new(prefix, config);
         let key = generator.generate(env).unwrap();
@@ -223,11 +231,7 @@ mod tests {
         let checksum_part = parts[0];
 
         // Verify checksum is 16 hex characters (BLAKE3 default)
-        assert_eq!(
-            checksum_part.len(),
-            16,
-            "Checksum should be 16 hex characters for BLAKE3"
-        );
+        assert_eq!(checksum_part.len(), checksum_len);
         assert!(checksum_part.chars().all(|c| c.is_ascii_hexdigit()));
 
         // Split key part on dash - note that base64 data can contain dashes,
@@ -314,6 +318,7 @@ mod tests {
         let prefix = KeyPrefix::new("text").unwrap();
         let env = Environment::Production;
         let config = KeyConfig::default();
+        let checksum_len = *config.checksum_length();
 
         let generator = KeyGenerator::new(prefix, config);
         let key = generator.generate(env).unwrap();
@@ -345,12 +350,7 @@ mod tests {
         assert_eq!(env_part, "live");
         // Third part is data
         assert!(data_part.len() > 0);
-        // Checksum should be 16 hex characters for BLAKE3 (default)
-        assert_eq!(
-            checksum.len(),
-            16,
-            "Checksum should be 16 hex characters for BLAKE3"
-        );
+        assert_eq!(checksum.len(), checksum_len);
     }
 
     #[test]

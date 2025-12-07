@@ -20,7 +20,7 @@ impl KeyHasher {
     }
     pub fn hash(&self, key: &SecureString) -> Result<String> {
         // Generate salt using OS cryptographic random source
-        let mut salt_bytes = [0u8; 16];
+        let mut salt_bytes = [0u8; 32];
         getrandom::fill(&mut salt_bytes)
             .map_err(|e| OperationError::Hashing(format!("Failed to generate salt: {}", e)))?;
 

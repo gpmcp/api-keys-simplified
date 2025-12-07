@@ -10,7 +10,6 @@ getrandom = { version = "0.3", features = ["std"] }
 base64 = "0.22.1"
 thiserror = "2.0.17"
 zeroize = { version = "1.8", features = ["derive"] }
-crc32fast = "1.5.0"
 blake3 = "1.8.2"
 strum = { version = "0.27.2", features = ["derive"] }
 lazy_static = "1.5.0"

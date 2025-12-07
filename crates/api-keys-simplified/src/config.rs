@@ -136,7 +136,7 @@ impl HashConfig {
     pub fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
-            time_cost: 2,
+            time_cost: 3,
             parallelism: 4,
         }
     }
@@ -161,7 +161,7 @@ pub enum ChecksumAlgo {
 #[derive(Debug, Clone, Getters)]
 pub struct KeyConfig {
     entropy_bytes: usize,
-    include_checksum: bool,
+    checksum_length: usize,
     separator: Separator,
     checksum_algorithm: ChecksumAlgo,
 }
@@ -182,8 +182,23 @@ impl KeyConfig {
         Ok(self)
     }
 
+    pub fn checksum(mut self, bytes: usize) -> Result<Self, ConfigError> {
+        match &self.checksum_algorithm {
+            ChecksumAlgo::Black3 => {
+                if bytes < 32 {
+                    return Err(ConfigError::ChecksumLenTooSmall);
+                }
+                if bytes > 64 {
+                    return Err(ConfigError::ChecksumLenTooLarge);
+                }
+            }
+        }
+        self.checksum_length = bytes;
+        Ok(self)
+    }
+
     pub fn disable_checksum(mut self) -> Self {
-        self.include_checksum = false;
+        self.checksum_length = 0;
         self
     }
 
@@ -195,7 +210,7 @@ impl KeyConfig {
     pub fn balanced() -> Self {
         Self {
             entropy_bytes: 24,
-            include_checksum: true,
+            checksum_length: 20,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
         }
@@ -203,8 +218,8 @@ impl KeyConfig {
 
     pub fn high_security() -> Self {
         Self {
-            entropy_bytes: 32,
-            include_checksum: true,
+            entropy_bytes: 64,
+            checksum_length: 32,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
         }

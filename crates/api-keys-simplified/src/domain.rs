@@ -52,7 +52,7 @@ impl ApiKeyManager {
         config: KeyConfig,
         hash_config: HashConfig,
     ) -> std::result::Result<Self, ConfigError> {
-        let include_checksum = *config.include_checksum();
+        let include_checksum = *config.checksum_length() != 0;
         let prefix = KeyPrefix::new(prefix)?;
         let generator = KeyGenerator::new(prefix, config);
         let validator = KeyValidator::new(&hash_config)?;
@@ -141,6 +141,11 @@ impl ApiKey<NoHash> {
 }
 
 impl ApiKey<Hash> {
+    /// Returns hash.
+    /// SECURITY:
+    /// Although it's safe to store hash,
+    /// do NOT make unnecessary clones 
+    /// and avoid logging the hash.
     pub fn hash(&self) -> &str {
         &self.hash.0
     }

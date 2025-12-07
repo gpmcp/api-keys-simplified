@@ -51,8 +51,15 @@ pub enum ConfigError {
     #[error("Invalid Argon2 parameters")]
     InvalidHashParams,
 
-    #[error("Invalid Argon2 hash. Please raise an issue at https://github.com/gpmcp/api-keys-simplified/issues/new")]
+    #[error("Invalid Argon2 hash. Please raise an issue at https://github.com/gpmcp/api-keys-simplified/issues/new"
+    )]
     InvalidArgon2Hash,
+    
+    #[error("Minium checksum length should be 32 bits")]
+    ChecksumLenTooSmall,
+    
+    #[error("Checksum length should be at MOST 128 bits")]
+    ChecksumLenTooLarge,
 }
 
 /// Detailed operation errors for debugging (use {:?} to see these)
