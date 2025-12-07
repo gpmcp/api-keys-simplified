@@ -144,7 +144,7 @@ impl ApiKey<Hash> {
     /// Returns hash.
     /// SECURITY:
     /// Although it's safe to store hash,
-    /// do NOT make unnecessary clones 
+    /// do NOT make unnecessary clones
     /// and avoid logging the hash.
     pub fn hash(&self) -> &str {
         &self.hash.0

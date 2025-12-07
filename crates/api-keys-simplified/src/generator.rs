@@ -35,7 +35,7 @@ impl KeyGenerator {
         //
         // Base64 without padding: ceil(input_len * 4 / 3) bytes
         // For URL_SAFE_NO_PAD: exact formula is (4 * input_len + 2) / 3
-        let encoded_len = (4 * random_bytes.len() + 2) / 3;
+        let encoded_len = (4 * random_bytes.len()).div_ceil(3);
         let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
 
         URL_SAFE_NO_PAD
@@ -115,7 +115,8 @@ impl KeyGenerator {
             Some(computed) => computed,
             None => {
                 let _ = self.compute_checksum(DUMMY_KEY);
-                return Ok(false) },
+                return Ok(false);
+            }
         };
 
         // Use constant-time comparison to prevent timing attacks
