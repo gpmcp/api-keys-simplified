@@ -1,42 +1,50 @@
-use api_keys_simplified::{ApiKey, Environment};
+use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig};
+use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::collections::HashSet;
 
 #[test]
 fn test_verification_with_invalid_hash() {
     // After timing oracle fix: invalid hash returns Ok(false) instead of Err
     // to prevent timing-based user enumeration attacks
-    let result = ApiKey::verify("any_key", "invalid_hash_format");
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    let any_key = api_keys_simplified::SecureString::from("any_key".to_string());
+    let result = generator.verify(&any_key, "invalid_hash_format");
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
 
 #[test]
 fn test_different_keys_same_hash() {
-    let key1 = ApiKey::generate_default("sk", Environment::production()).unwrap();
-    let key2 = ApiKey::generate_default("sk", Environment::production()).unwrap();
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    let key1 = generator.generate(Environment::production()).unwrap();
+    let key2 = generator.generate(Environment::production()).unwrap();
 
     // Different keys should not validate against each other's hashes
-    assert!(!ApiKey::verify(key2.key(), key1.hash()).unwrap());
-    assert!(!ApiKey::verify(key1.key(), key2.hash()).unwrap());
+    assert!(!generator.verify(key2.key(), key1.hash()).unwrap());
+    assert!(!generator.verify(key1.key(), key2.hash()).unwrap());
 }
 
 #[test]
 fn test_checksum_validation() {
-    let with_checksum = ApiKey::generate_default("chk", Environment::test()).unwrap();
-    assert!(ApiKey::verify_checksum(with_checksum.key()).unwrap());
+    let config = KeyConfig::default();
+    let generator = ApiKeyManager::init("chk", config, HashConfig::default()).unwrap();
+    let with_checksum = generator.generate(Environment::test()).unwrap();
+    assert!(generator.verify_checksum(with_checksum.key()).unwrap());
 
     // Corrupt the checksum
     let corrupted = format!(
         "{}_corrupt",
-        &with_checksum.key().as_ref()[..with_checksum.key().len() - 8]
+        &with_checksum.key().expose_secret()[..with_checksum.key().len() - 8]
     );
-    assert!(!ApiKey::verify_checksum(&corrupted).unwrap());
+    let corrupted_key = api_keys_simplified::SecureString::from(corrupted);
+    assert!(!generator.verify_checksum(&corrupted_key).unwrap());
 }
 
 #[test]
 fn test_hash_uniqueness_with_same_key() {
-    let hash1 = ApiKey::generate_default("sk", Environment::production()).unwrap();
-    let hash2 = ApiKey::generate_default("sk", Environment::production()).unwrap();
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    let hash1 = generator.generate(Environment::production()).unwrap();
+    let hash2 = generator.generate(Environment::production()).unwrap();
 
     // Even with same key value, hashes should differ due to unique salts
     assert_ne!(hash1.hash(), hash2.hash());
@@ -48,10 +56,10 @@ fn test_collision_resistance() {
     let mut keys = HashSet::new();
     let count = 1000;
 
+    let generator = ApiKeyManager::init_default_config("text").unwrap();
     for _ in 0..count {
-        let key = ApiKey::generate_default("test", Environment::test()).unwrap();
-        // Use .as_ref() to get actual key string, not the redacted Display output
-        keys.insert(key.key().as_ref().to_string());
+        let key = generator.generate(Environment::test()).unwrap();
+        keys.insert(key.key().expose_secret().to_string());
     }
 
     // All keys should be unique
@@ -60,10 +68,12 @@ fn test_collision_resistance() {
 
 #[test]
 fn test_key_format_consistency() {
-    let key = ApiKey::generate_default("format", Environment::test()).unwrap();
-    let key_str = key.key().as_ref();
+    let config = KeyConfig::default();
+    let generator = ApiKeyManager::init("format", config, HashConfig::default()).unwrap();
+    let key = generator.generate(Environment::test()).unwrap();
+    let key_str = key.key().expose_secret();
 
-    // With dash separator and checksum: format-test-data.checksum = 1 dot (for checksum only)
+    // With dash separator and checksum (enabled by default): format-test-data.checksum = 1 dot
     assert_eq!(key_str.matches('.').count(), 1);
 
     // Should not contain spaces or special characters except . and base64url chars (A-Za-z0-9-_)
@@ -74,7 +84,8 @@ fn test_key_format_consistency() {
 
 #[test]
 fn test_argon2_phc_format() {
-    let key = ApiKey::generate_default("phc", Environment::test()).unwrap();
+    let generator = ApiKeyManager::init_default_config("phc").unwrap();
+    let key = generator.generate(Environment::test()).unwrap();
     let hash = key.hash();
 
     // Argon2 PHC format starts with $argon2id$
@@ -91,8 +102,9 @@ fn test_error_messages_dont_leak_info() {
     // timing attacks, so we test DoS protection errors instead
 
     // Test DoS protection error (oversized input) - this still returns Err
-    let oversized_key = "a".repeat(1000);
-    let result = ApiKey::verify(&oversized_key, "some_hash");
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
+    let result = generator.verify(&oversized_key, "some_hash");
     assert!(result.is_err());
 
     let err = result.unwrap_err();
@@ -114,8 +126,9 @@ fn test_error_messages_dont_leak_info() {
 
 #[test]
 fn test_oversized_input_error_is_generic() {
-    let oversized_key = "a".repeat(1000);
-    let result = ApiKey::verify(&oversized_key, "some_hash");
+    let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
+    let result = generator.verify(&oversized_key, "some_hash");
 
     assert!(result.is_err());
     let err = result.unwrap_err();

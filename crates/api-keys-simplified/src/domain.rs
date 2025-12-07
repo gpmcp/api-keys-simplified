@@ -1,76 +1,117 @@
+use crate::error::ConfigError;
 use crate::{
-    config::{Environment, KeyConfig, KeyPrefix, Separator},
+    config::{Environment, KeyConfig, KeyPrefix},
     error::Result,
     generator::KeyGenerator,
     hasher::KeyHasher,
     secure::SecureString,
     validator::KeyValidator,
+    ExposeSecret, HashConfig,
 };
+use derive_getters::Getters;
+use std::fmt::Debug;
+
+/// ApiKeyManager is storable object
+/// used to generate and verify API keys.
+/// It contains immutable config data necessary
+/// to operate. It does NOT contain ANY sensitive
+/// data.
+#[derive(Clone, Getters)]
+pub struct ApiKeyManager {
+    #[getter(skip)]
+    generator: KeyGenerator,
+    hasher: KeyHasher,
+    #[getter(skip)]
+    validator: KeyValidator,
+    #[getter(skip)]
+    include_checksum: bool,
+}
+
+// FIXME: Need better naming
+/// Hash can be safely stored as String
+/// in memory without having to worry about
+/// zeroizing. Hashes are not secrets and are meant to be stored.
+#[derive(Debug)]
+pub struct Hash(String);
+#[derive(Debug)]
+pub struct NoHash;
 
 /// Represents a generated API key with its hash.
 ///
 /// The key field is stored in a `SecureString` which automatically zeros
 /// its memory on drop, preventing potential memory disclosure.
-#[derive(Clone)]
-pub struct ApiKey {
+#[derive(Debug)]
+pub struct ApiKey<Hash> {
     key: SecureString,
-    hash: String,
+    hash: Hash,
 }
 
-// Custom Debug implementation to prevent accidental key logging
-impl std::fmt::Debug for ApiKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ApiKey")
-            .field("key", &"[REDACTED]")
-            .field("hash", &self.hash)
-            .finish()
-    }
-}
-
-impl ApiKey {
-    pub fn generate(
+impl ApiKeyManager {
+    pub fn init(
         prefix: impl Into<String>,
-        environment: impl Into<Environment>,
         config: KeyConfig,
-    ) -> Result<Self> {
-        let prefix = KeyPrefix::new(prefix, &config.separator)?;
+        hash_config: HashConfig,
+    ) -> std::result::Result<Self, ConfigError> {
+        let include_checksum = *config.checksum_length() != 0;
+        let prefix = KeyPrefix::new(prefix)?;
+        let generator = KeyGenerator::new(prefix, config);
+        let validator = KeyValidator::new(&hash_config)?;
+        let hasher = KeyHasher::new(hash_config);
 
-        let key = KeyGenerator::generate(prefix, environment.into(), &config)?;
-        let hash = KeyHasher::hash(&key, &config.hash_config)?;
-
-        Ok(Self { key, hash })
+        Ok(Self {
+            generator,
+            hasher,
+            validator,
+            include_checksum,
+        })
     }
 
-    pub fn generate_default(
+    pub fn init_default_config(
         prefix: impl Into<String>,
-        environment: impl Into<Environment>,
-    ) -> Result<Self> {
-        Self::generate(prefix, environment, KeyConfig::default())
+    ) -> std::result::Result<Self, ConfigError> {
+        Self::init(prefix, KeyConfig::default(), HashConfig::default())
     }
-
-    pub fn generate_high_security(
+    pub fn init_high_security_config(
         prefix: impl Into<String>,
-        environment: impl Into<Environment>,
-    ) -> Result<Self> {
-        Self::generate(prefix, environment, KeyConfig::high_security())
+    ) -> std::result::Result<Self, ConfigError> {
+        Self::init(
+            prefix,
+            KeyConfig::high_security(),
+            HashConfig::high_security(),
+        )
     }
 
-    pub fn verify(provided_key: impl AsRef<str>, stored_hash: impl AsRef<str>) -> Result<bool> {
-        KeyValidator::verify(provided_key.as_ref(), stored_hash.as_ref())
+    pub fn generate(&self, environment: impl Into<Environment>) -> Result<ApiKey<Hash>> {
+        let key = self.generator.generate(environment.into())?;
+        let api_key = ApiKey::new(key).into_hashed(&self.hasher)?;
+
+        Ok(api_key)
     }
 
-    pub fn verify_checksum(key: impl AsRef<str>) -> Result<bool> {
-        KeyGenerator::verify_checksum(key.as_ref())
+    pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<bool> {
+        if self.include_checksum && !self.verify_checksum(key)? {
+            return Ok(false);
+        }
+
+        self.validator
+            .verify(key.expose_secret(), stored_hash.as_ref())
     }
 
+    pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
+        self.generator.verify_checksum(key)
+    }
+}
+
+impl<T> ApiKey<T> {
     /// Returns a reference to the secure API key.
     ///
-    /// To access the underlying string, use `.as_ref()` on the returned `SecureString`:
+    /// To access the underlying string, use `.expose_secret()` on the returned `SecureString`:
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKey, Environment};
-    /// # let api_key = ApiKey::generate_default("sk", Environment::production()).unwrap();
-    /// let key_str: &str = api_key.key().as_ref();
+    /// # use api_keys_simplified::{ApiKeyManager, Environment, ExposeSecret};
+    /// # let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    /// # let api_key = generator.generate(Environment::production()).unwrap();
+    /// let key_str: &str = api_key.key().expose_secret();
     /// ```
     ///
     /// # Security Note
@@ -80,65 +121,78 @@ impl ApiKey {
     pub fn key(&self) -> &SecureString {
         &self.key
     }
+}
 
+impl ApiKey<NoHash> {
+    pub fn new(key: SecureString) -> ApiKey<NoHash> {
+        ApiKey { key, hash: NoHash }
+    }
+    pub fn into_hashed(self, hasher: &KeyHasher) -> Result<ApiKey<Hash>> {
+        let hash = hasher.hash(&self.key)?;
+
+        Ok(ApiKey {
+            key: self.key,
+            hash: Hash(hash),
+        })
+    }
+    pub fn into_key(self) -> SecureString {
+        self.key
+    }
+}
+
+impl ApiKey<Hash> {
+    /// Returns hash.
+    /// SECURITY:
+    /// Although it's safe to store hash,
+    /// do NOT make unnecessary clones
+    /// and avoid logging the hash.
     pub fn hash(&self) -> &str {
-        &self.hash
+        &self.hash.0
     }
-
-    pub fn parse_prefix(key: &SecureString, separator: Separator) -> Result<String> {
-        KeyGenerator::parse_key(key.as_ref(), separator).map(|(prefix, _)| prefix)
-    }
-
-    pub fn parse_environment(key: &SecureString, separator: Separator) -> Result<String> {
-        KeyGenerator::parse_key(key.as_ref(), separator).map(|(_, env)| env)
+    pub fn into_key(self) -> SecureString {
+        self.key
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ExposeSecret, SecureStringExt};
 
     #[test]
     fn test_full_lifecycle() {
-        let api_key = ApiKey::generate_default("sk", Environment::production()).unwrap();
+        let generator = ApiKeyManager::init_default_config("sk").unwrap();
+        let api_key = generator.generate(Environment::production()).unwrap();
 
         let key_str = api_key.key();
         let hash_str = api_key.hash();
 
-        assert!(key_str.as_ref().starts_with("sk-live-"));
+        assert!(key_str.expose_secret().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
-        assert!(ApiKey::verify(key_str.as_ref(), hash_str).unwrap());
-        assert!(!ApiKey::verify("wrong_key", hash_str).unwrap());
+        assert!(generator.verify(key_str, hash_str).unwrap());
+        let wrong_key = SecureString::from("wrong_key".to_string());
+        assert!(!generator.verify(&wrong_key, hash_str).unwrap());
     }
 
     #[test]
     fn test_different_presets() {
-        let balanced = ApiKey::generate_default("pk", Environment::test()).unwrap();
-        let high_sec = ApiKey::generate_high_security("sk", Environment::Production).unwrap();
+        let balanced_gen = ApiKeyManager::init_default_config("pk").unwrap();
+        let balanced = balanced_gen.generate(Environment::test()).unwrap();
+
+        let high_sec_gen = ApiKeyManager::init_high_security_config("sk").unwrap();
+        let high_sec = high_sec_gen.generate(Environment::Production).unwrap();
 
         assert!(!balanced.key().is_empty());
         assert!(high_sec.key().len() > balanced.key().len());
     }
 
     #[test]
-    fn test_parsing() {
-        let key = SecureString::from("sk/live/abc123xyz789");
-        let prefix = ApiKey::parse_prefix(&key, Separator::Slash).unwrap();
-        let env = ApiKey::parse_environment(&key, Separator::Slash).unwrap();
-
-        assert_eq!(prefix, "sk");
-        assert_eq!(env, "live");
-    }
-
-    #[test]
     fn test_custom_config() {
-        let config = KeyConfig::new()
-            .with_entropy(32)
-            .unwrap()
-            .with_checksum(true);
+        let config = KeyConfig::new().with_entropy(32).unwrap();
 
-        let key = ApiKey::generate("custom", Environment::production(), config).unwrap();
-        assert!(ApiKey::verify_checksum(key.key()).unwrap());
+        let generator = ApiKeyManager::init("custom", config, HashConfig::default()).unwrap();
+        let key = generator.generate(Environment::production()).unwrap();
+        assert!(generator.verify_checksum(key.key()).unwrap());
     }
 }

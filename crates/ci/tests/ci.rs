@@ -32,9 +32,16 @@ fn main() {
                 ),
         )
         .add_step(Step::new("Install cargo-llvm-cov").run("cargo install cargo-llvm-cov || true"))
-        .add_step(Step::new("Generate coverage").run(
-            "cargo +nightly llvm-cov --release --all-features --workspace --lcov --output-path lcov.info",
-        ))
+        .add_step(
+            Step::new("Generate coverage (main branch or expensive)")
+                .run("cargo +nightly llvm-cov --release --all-features --workspace --lcov --output-path lcov.info")
+                .if_condition(Expression::new("${{ github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci: expensive') }}")),
+        )
+        .add_step(
+            Step::new("Generate coverage (fast)")
+                .run("cargo +nightly llvm-cov --workspace --lcov --output-path lcov.info")
+                .if_condition(Expression::new("${{ github.ref != 'refs/heads/main' && !contains(github.event.pull_request.labels.*.name, 'ci: expensive') }}")),
+        )
         .add_step(
             Step::new("Upload Coverage to Codecov")
                 .uses("Wandalen", "wretry.action", "v3")
@@ -107,7 +114,8 @@ fn main() {
     let release_pr_job = Job::new("Release Pr")
         .name("Release Pr")
         .runs_on("ubuntu-latest")
-        .needs(vec!["build".to_string(), "lint".to_string()])
+        .add_needs("build")
+        .add_needs("lint")
         .cond(Expression::new(
             "${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}",
         ))

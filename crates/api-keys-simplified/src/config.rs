@@ -1,4 +1,5 @@
-use crate::error::{ConfigError, Result};
+use crate::error::ConfigError;
+use derive_getters::Getters;
 use lazy_static::lazy_static;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
@@ -44,35 +45,28 @@ impl Environment {
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(prefix: impl Into<String>, separator: &Separator) -> Result<Self> {
+    pub fn new(prefix: impl Into<String>) -> std::result::Result<Self, ConfigError> {
         let prefix = prefix.into();
         if prefix.is_empty() || prefix.len() > 20 {
-            return Err(ConfigError::InvalidPrefixLength.into());
+            return Err(ConfigError::InvalidPrefixLength);
         }
         if !prefix
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
-            return Err(ConfigError::InvalidPrefixCharacters.into());
+            return Err(ConfigError::InvalidPrefixCharacters);
         }
-        let sep_string: &'static str = separator.into();
-        if let Some(invalid) = Environment::variants()
-            .iter()
-            .find(|v| prefix.contains(&format!("{sep_string}{v}{sep_string}")))
-        {
-            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()).into());
+        if let Some(invalid) = Environment::variants().iter().find(|v| {
+            let s: &'static str = (*v).into();
+            prefix.contains(s)
+        }) {
+            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
         Ok(Self(prefix))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl Default for KeyPrefix {
-    fn default() -> Self {
-        Self("key".to_string())
     }
 }
 
@@ -90,7 +84,7 @@ pub enum Separator {
     Tilde,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters)]
 pub struct HashConfig {
     memory_cost: u32,
     time_cost: u32,
@@ -99,7 +93,11 @@ pub struct HashConfig {
 
 impl HashConfig {
     /// Creates a custom HashConfig with validated parameters.
-    pub fn custom(memory_cost: u32, time_cost: u32, parallelism: u32) -> Result<Self> {
+    pub fn custom(
+        memory_cost: u32,
+        time_cost: u32,
+        parallelism: u32,
+    ) -> std::result::Result<Self, ConfigError> {
         // Verify parameters are accepted by Argon2 library
         // Bad idea to do it here.. but we'll keep it here for now
         argon2::Params::new(memory_cost, time_cost, parallelism, None)
@@ -112,31 +110,18 @@ impl HashConfig {
         })
     }
 
-    /// Returns the memory cost in KiB.
-    pub fn memory_cost(&self) -> u32 {
-        self.memory_cost
-    }
-
-    /// Returns the time cost (number of iterations).
-    pub fn time_cost(&self) -> u32 {
-        self.time_cost
-    }
-
-    /// Returns the parallelism degree.
-    pub fn parallelism(&self) -> u32 {
-        self.parallelism
-    }
-
     /// Balanced preset for general production use.
     ///
-    /// - Memory: 19 MB
-    /// - Time: 2 iterations
-    /// - Parallelism: 1 thread
-    /// - Verification time: ~50ms
+    /// - Memory: 46 MB
+    /// - Time: 1 iterations
+    /// - Parallelism: 1 threads
+    ///   Default recommendation according to
+    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
+    ///   Refer the document for best practices at different memory cost.
     pub fn balanced() -> Self {
         Self {
-            memory_cost: 19_456,
-            time_cost: 2,
+            memory_cost: 47_104,
+            time_cost: 1,
             parallelism: 1,
         }
     }
@@ -144,9 +129,10 @@ impl HashConfig {
     /// High security preset for sensitive operations.
     ///
     /// - Memory: 64 MB
-    /// - Time: 3 iterations
+    /// - Time: 2 iterations
     /// - Parallelism: 4 threads
-    /// - Verification time: ~150ms
+    ///   Higher limits then what's suggested in
+    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
     pub fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
@@ -162,12 +148,22 @@ impl Default for HashConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone, IntoStaticStr)]
+pub enum ChecksumAlgo {
+    /// Cryptographic yet fast
+    /// hashing algo, suitable for
+    /// quick checksum verification.
+    #[default]
+    #[strum(serialize = "b3")]
+    Black3,
+}
+
+#[derive(Debug, Clone, Getters)]
 pub struct KeyConfig {
-    pub entropy_bytes: usize,
-    pub include_checksum: bool,
-    pub hash_config: HashConfig,
-    pub separator: Separator,
+    entropy_bytes: usize,
+    checksum_length: usize,
+    separator: Separator,
+    checksum_algorithm: ChecksumAlgo,
 }
 
 impl KeyConfig {
@@ -175,24 +171,34 @@ impl KeyConfig {
         Self::default()
     }
 
-    pub fn with_entropy(mut self, bytes: usize) -> Result<Self> {
+    pub fn with_entropy(mut self, bytes: usize) -> std::result::Result<Self, ConfigError> {
         if bytes < 16 {
-            return Err(ConfigError::EntropyTooLow.into());
+            return Err(ConfigError::EntropyTooLow);
         }
         if bytes > 64 {
-            return Err(ConfigError::EntropyTooHigh.into());
+            return Err(ConfigError::EntropyTooHigh);
         }
         self.entropy_bytes = bytes;
         Ok(self)
     }
 
-    pub fn with_checksum(mut self, include: bool) -> Self {
-        self.include_checksum = include;
-        self
+    pub fn checksum(mut self, bytes: usize) -> Result<Self, ConfigError> {
+        match &self.checksum_algorithm {
+            ChecksumAlgo::Black3 => {
+                if bytes < 32 {
+                    return Err(ConfigError::ChecksumLenTooSmall);
+                }
+                if bytes > 64 {
+                    return Err(ConfigError::ChecksumLenTooLarge);
+                }
+            }
+        }
+        self.checksum_length = bytes;
+        Ok(self)
     }
 
-    pub fn with_hash_config(mut self, hash_config: HashConfig) -> Self {
-        self.hash_config = hash_config;
+    pub fn disable_checksum(mut self) -> Self {
+        self.checksum_length = 0;
         self
     }
 
@@ -204,18 +210,18 @@ impl KeyConfig {
     pub fn balanced() -> Self {
         Self {
             entropy_bytes: 24,
-            include_checksum: true,
-            hash_config: HashConfig::balanced(),
+            checksum_length: 20,
             separator: Separator::default(),
+            checksum_algorithm: ChecksumAlgo::default(),
         }
     }
 
     pub fn high_security() -> Self {
         Self {
-            entropy_bytes: 32,
-            include_checksum: true,
-            hash_config: HashConfig::high_security(),
+            entropy_bytes: 64,
+            checksum_length: 32,
             separator: Separator::default(),
+            checksum_algorithm: ChecksumAlgo::default(),
         }
     }
 }
@@ -233,11 +239,10 @@ mod tests {
 
     #[test]
     fn test_prefix_validation() {
-        let sep = &Separator::default();
-        assert!(KeyPrefix::new("sk", sep).is_ok());
-        assert!(KeyPrefix::new("api_key", sep).is_ok());
-        assert!(KeyPrefix::new("", sep).is_err());
-        assert!(KeyPrefix::new("invalid-prefix", sep).is_err());
+        assert!(KeyPrefix::new("sk").is_ok());
+        assert!(KeyPrefix::new("api_key").is_ok());
+        assert!(KeyPrefix::new("").is_err());
+        assert!(KeyPrefix::new("invalid-prefix").is_err());
     }
 
     #[test]

@@ -52,8 +52,12 @@ jobs:
         restore-keys: ${{ runner.os }}-cargo-llvm-cov-
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov || true
-    - name: Generate coverage
+    - name: Generate coverage (main branch or expensive)
+      if: '${{ github.ref == ''refs/heads/main'' || contains(github.event.pull_request.labels.*.name, ''ci: expensive'') }}'
       run: cargo +nightly llvm-cov --release --all-features --workspace --lcov --output-path lcov.info
+    - name: Generate coverage (fast)
+      if: '${{ github.ref != ''refs/heads/main'' && !contains(github.event.pull_request.labels.*.name, ''ci: expensive'') }}'
+      run: cargo +nightly llvm-cov --workspace --lcov --output-path lcov.info
     - name: Upload Coverage to Codecov
       uses: Wandalen/wretry.action@v3
       with:

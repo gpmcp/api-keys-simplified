@@ -11,25 +11,27 @@ A secure Rust library for generating and validating API keys with built-in secur
 
 - **Cryptographically secure** key generation (192-bit entropy)
 - **Argon2id hashing** (memory-hard, OWASP recommended)
+- **BLAKE3 checksums** (2900x faster DoS protection)
 - **Constant-time verification** (prevents timing attacks)
 - **Automatic memory zeroing** (protects sensitive data)
 
 ## Quick Example
 
 ```rust
-use api_keys_simplified::{ApiKey, Environment};
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
 
-// Generate a new API key
-let api_key = ApiKey::generate_default("myapp_sk", Environment::production())?;
+// Generate with checksum (enabled by default - 2900x faster DoS protection)
+let manager = ApiKeyManager::init_default_config("myapp_sk")?;
+let api_key = manager.generate(Environment::production())?;
 
 // Show to user once (they must save it)
-println!("API Key: {}", api_key.key().as_ref());
+println!("API Key: {}", api_key.key().expose_secret());
 
 // Store only the hash
 database.save(api_key.hash());
 
-// Later: verify incoming key
-if ApiKey::verify(provided_key, stored_hash)? {
+// Later: verify incoming key (checksum checked first)
+if manager.verify(provided_key, stored_hash)? {
     // Key is valid
 }
 ```

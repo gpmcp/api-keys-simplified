@@ -6,6 +6,7 @@ fn main() {
     let sonarqube_job = Job::new("sonarqube")
         .name("SonarQube")
         .runs_on("ubuntu-latest")
+        .permissions(Permissions::default().contents(Level::Read))
         .add_step(Step::checkout().with(Input::default().add("fetch-depth", "0")))
         .add_step(
             Step::new("SonarQube Scan")

@@ -11,6 +11,7 @@ A secure, Rust library for generating and validating API keys with built-in secu
 
 - **Generate** cryptographically secure API keys (192-bit entropy default)
 - **Hash** keys using Argon2id (memory-hard, OWASP recommended)
+- **Checksum** keys with BLAKE3 for fast DoS protection (2900x speedup)
 - **Verify** keys with constant-time comparison (prevents timing attacks)
 - **Protect** sensitive data with automatic memory zeroing
 
@@ -26,28 +27,30 @@ api-keys-simplified = "0.1"
 ### Basic Usage
 
 ```rust
-use api_keys_simplified::{ApiKey, Environment};
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Generate a new API key
-    let api_key = ApiKey::generate_default("gpmcp_sk", Environment::production())?;
+    // 1. Initialize with checksum (out of the box DoS protection)
+    let manager = ApiKeyManager::init_default_config("gpmcp_sk")?;
+    
+    // 2. Generate a new API key
+    let api_key = manager.generate(Environment::production())?;
 
-    // 2. Show key to user ONCE (they must save it)
-    println!("API Key: {}", api_key.key().as_ref());
+    // 3. Show key to user ONCE (they must save it)
+    println!("API Key: {}", api_key.key().expose_secret());
 
-    // 3. Store only the hash in your database
-    let hash = api_key.hash();
-    database::save_user_key_hash(user_id, hash)?;
+    // 4. Store only the hash in your database
+    database::save_user_key_hash(user_id, api_key.hash())?;
 
-    // 4. Later: verify an incoming key
+    // 5. Later: verify an incoming key (checksum validated first!)
     let provided_key = request.headers().get("X-API-Key")?;
     let stored_hash = database::get_user_key_hash(user_id)?;
 
-    if ApiKey::verify(provided_key, stored_hash)? {
+    if manager.verify(&provided_key, &stored_hash)? {
         // Key is valid - grant access
         handle_request(request)
     } else {
-        // Key is invalid - reject
+        // Key is invalid - rejected in ~20μs (not ~300ms)
         Err("Invalid API key")
     }
 }
@@ -56,18 +59,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Key Format
 
 ```
-prefix.environment.random_data.checksum
+prefix-environment-random_data.checksum
      │         │            │         │
-     │         │            │         └─ CRC32 (optional)
-     │         │            └─────────── Base64URL (192 bits)
+     │         │            │         └─ BLAKE3 (recommended, 16 hex chars)
+     │         │            └─────────── Base64URL (192 bits default)
      │         └──────────────────────── dev/test/staging/live
      └────────────────────────────────── User-defined (e.g., acme_sk, stripe_pk)
 ```
 
 **Examples:**
 
-- `gpmcp_sk.live.Xf8kP2qW9zLmN4vC8aH5tJw1bQmK3rN9.a1b2c3d4`
-- `acme_api.dev.Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.e5f6g7h8`
+- `gpmcp_sk-live-Xf8kP2qW9zLmN4vC8aH5tJw1bQmK3rN9.a1b2c3d4e5f6g7h8`
+- `acme_api-dev-Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.9f8e7d6c5b4a3210`
+
+**Checksum provides:**
+- 2900x faster rejection of invalid keys
+- DoS protection against malformed requests
+- Integrity verification before expensive Argon2
 
 ## Why Use This?
 
@@ -104,9 +112,14 @@ Common API key security mistakes:
 
 ### 📊 DoS Protection
 
+- **BLAKE3 Checksums:** Invalid keys rejected in ~20μs (vs ~300ms Argon2)
+- **2900x Speedup:** Dramatically reduces DoS attack surface
 - **Input Validation:** 512-byte max key length
 - **Resource Limits:** Prevents hash complexity attacks
-- **Fast Rejection:** Optional CRC32 checksum for malformed keys
+
+**Performance Comparison (10 invalid keys):**
+- ✅ With checksum: 0ms (fast rejection)
+- ❌ Without checksum: 2907ms (all Argon2)
 
 ### 🔍 Threat Model
 
@@ -119,32 +132,37 @@ Common API key security mistakes:
 ### Best Practices
 
 ```rust
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+
+// ✅ Checksums enabled by default (DoS protection - use .disable_checksum() to turn off)
+let manager = ApiKeyManager::init_default_config("myapp_sk")?;
+
 // ✅ Never log keys (auto-redacted)
-println!("{:?}", api_key);  // Prints: ApiKey { key: "[REDACTED]", ... }
+let key = manager.generate(Environment::production())?;
+println!("{:?}", key);  // Prints: ApiKey { key: "[REDACTED]", ... }
 
 // ✅ Show keys only once
-let key = ApiKey::generate_default("myapp_sk", Environment::production()) ?;
-display_to_user_once(key.key().as_ref());
+display_to_user_once(key.key().expose_secret());
 db.save(key.hash());  // Store hash only
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
-.header("X-API-Key", key.as_ref())
-.send() ?;
+    .header("X-API-Key", key.key().expose_secret())
+    .send()?;
 
 // ✅ Implement key rotation
-fn rotate_key(user_id: u64) -> Result<ApiKey> {
-    let new_key = ApiKey::generate_default("client_sk", Environment::production())?;
+fn rotate_key(manager: &ApiKeyManager, user_id: u64) -> Result<ApiKey> {
+    let new_key = manager.generate(Environment::production())?;
     db.revoke_old_keys(user_id)?;
     db.save_new_hash(user_id, new_key.hash())?;
     Ok(new_key)
 }
 
-// ✅ Rate limit verification
+// ✅ Rate limit verification (still important with checksums)
 if rate_limiter.check(ip_address).is_err() {
-return Err("Too many failed attempts");
+    return Err("Too many failed attempts");
 }
-ApiKey::verify(provided_key, stored_hash) ?;
+manager.verify(provided_key, stored_hash)?;
 ```
 
 ## Performance
@@ -169,7 +187,7 @@ cargo test --features expensive_tests  # Include timing analysis
 use api_keys_simplified::{ApiKey, Error};
 
 match ApiKey::generate_default("", Environment::production()) {
-Ok(key) => println ! ("Success: {}", key.key().as_ref()),
+Ok(key) => println ! ("Success: {}", key.key().expose_secret()),
 Err(Error::InvalidConfig(msg)) => eprintln ! ("Config error: {}", msg),
 Err(Error::InvalidFormat) => eprintln ! ("Invalid key format"),
 Err(Error::HashingFailed(msg)) => eprintln ! ("Hashing error: {}", msg),
@@ -211,3 +229,15 @@ All cryptographic implementations use well-audited crates:
 ## Reporting Vulnerabilities
 
 Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
+
+
+## Progress
+
+- [ ] Key expiration support
+- [ ] Key rotation support
+- [x] Fix timing attack in dummy_load
+- [x] Zero all intermediate string allocations
+- [ ] Write e2e tests to ensure memory zeroization
+- [ ] Write e2e tests to verify prevention of side-channel attacks
+
+Contributions welcome! See [CONTRIBUTING.md](https://github.com/gpmcp/api-keys-simplified/blob/main/CONTRIBUTING.md) for guidelines.

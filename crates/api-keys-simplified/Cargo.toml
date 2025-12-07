@@ -18,9 +18,12 @@ getrandom.workspace = true
 base64.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
-crc32fast.workspace = true
+blake3.workspace = true
 strum.workspace = true
 lazy_static.workspace = true
+derive-getters.workspace = true
+derive_more.workspace = true
+secrecy.workspace = true
 
 [features]
 default = []

@@ -1,80 +1,107 @@
+use crate::config::ChecksumAlgo;
 use crate::{
-    config::{Environment, KeyConfig, KeyPrefix, Separator},
+    config::{Environment, KeyConfig, KeyPrefix},
     error::{Error, OperationError, Result},
-    SecureString,
+    ExposeSecret, SecureString,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 // Prevent DoS: Validate input length before processing
 const MAX_KEY_LENGTH: usize = 512;
+const CHECKSUM_SEPARATOR: u8 = b'.';
+static DUMMY_KEY: &str = "dummy_key_for_timing_protection";
 
-// Prevent DoS: Limit number of parts to prevent memory exhaustion
-const MAX_PARTS: usize = 20; // Generous limit for complex prefixes
-
-const CHECKSUM_SEPARATOR: char = '.';
-
-pub struct KeyGenerator;
+#[derive(Clone)]
+pub struct KeyGenerator {
+    prefix: KeyPrefix,
+    config: KeyConfig,
+}
 
 impl KeyGenerator {
-    pub fn generate(
-        prefix: KeyPrefix,
-        environment: Environment,
-        config: &KeyConfig,
-    ) -> Result<SecureString> {
-        let mut random_bytes = vec![0u8; config.entropy_bytes];
+    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> KeyGenerator {
+        Self { prefix, config }
+    }
+    pub fn generate(&self, environment: Environment) -> Result<SecureString> {
+        let mut random_bytes = Zeroizing::new(vec![0u8; *self.config.entropy_bytes()]);
         getrandom::fill(&mut random_bytes).map_err(|e| {
             OperationError::Generation(format!("Failed to get random bytes: {}", e))
         })?;
 
-        // Use standard URL-safe base64 encoding (no padding)
-        // Produces: A-Z, a-z, 0-9, -, _ (all URL-safe, no special encoding needed)
-        let encoded = URL_SAFE_NO_PAD.encode(&random_bytes);
+        // SECURITY FIX: Encode directly into a Zeroizing buffer to prevent intermediate
+        // String allocation. Previously, encode() created an intermediate String that
+        // was never zeroized before being converted to bytes.
+        //
+        // Base64 without padding: ceil(input_len * 4 / 3) bytes
+        // For URL_SAFE_NO_PAD: exact formula is (4 * input_len + 2) / 3
+        let encoded_len = (4 * random_bytes.len()).div_ceil(3);
+        let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
+
+        URL_SAFE_NO_PAD
+            .encode_slice(&random_bytes, &mut encoded)
+            .map_err(|e| OperationError::Generation(format!("Base64 encoding failed: {}", e)))?;
 
         // Format: prefix{sep}environment{sep}base64data[.checksum]
         // Using configured separator
-        let sep: &'static str = config.separator.into();
+        let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
-        let key = format!("{}{}{}{}{}", prefix.as_str(), sep, env, sep, encoded);
 
-        if config.include_checksum {
-            let checksum = Self::compute_checksum(&key);
-            // Use . as separator for checksum (always dot, regardless of key separator)
-            Ok(SecureString::new(format!(
-                "{}{CHECKSUM_SEPARATOR}{}",
-                key, checksum
-            )))
-        } else {
-            Ok(SecureString::new(key))
+        // SECURITY: Pre-allocate capacity to prevent reallocations during append operations.
+        // Vec::append() can trigger reallocation if capacity is insufficient, which would
+        // leave the old buffer (containing sensitive key material) in memory without zeroing.
+        // By allocating the exact capacity needed upfront, we ensure a single buffer is used
+        // throughout, which then gets moved to SecureString for proper zeroization on drop.
+        let checksum_length = match self.config.checksum_length() {
+            0 => 0,
+            n => n + 1, // Plus one for separator.
+        };
+        let capacity = self.prefix.as_str().len()
+            + sep.len()
+            + env.len()
+            + sep.len()
+            + encoded.len()
+            + checksum_length;
+
+        let mut key = Vec::with_capacity(capacity);
+        key.extend_from_slice(self.prefix.as_str().as_bytes());
+        key.extend_from_slice(sep.as_bytes());
+        key.extend_from_slice(env.as_bytes());
+        key.extend_from_slice(sep.as_bytes());
+        key.append(&mut encoded);
+
+        // Compute checksum on the key BEFORE appending the separator and checksum
+        if let Some(checksum) = self.compute_checksum(&key) {
+            key.push(CHECKSUM_SEPARATOR);
+            key.append(&mut checksum.into_bytes());
         }
-    }
 
-    /// Computes a **non-cryptographic** integrity checksum using CRC32.
-    ///
-    /// # Security Note
-    ///
-    /// CRC32 is NOT collision-resistant and should NOT be relied upon for security.
-    /// This checksum serves only to:
-    /// - Detect accidental corruption (typos, truncation)
-    /// - Enable fast rejection of malformed keys before expensive Argon2 verification
-    ///
-    /// The Argon2 hash provides actual cryptographic authentication.
-    /// An attacker can find CRC32 collisions with ~65,536 attempts (birthday attack).
-    fn compute_checksum(key: &str) -> String {
-        let crc = crc32fast::hash(key.as_bytes());
-        format!("{:08x}", crc) // 8 hex characters for full 32-bit CRC
+        // SECURITY: It's SAFE to call from_utf8 here, since
+        // that function will copy the vector.
+        Ok(SecureString::from(String::from_utf8(key).map_err(
+            |_| {
+                Error::OperationFailed(OperationError::Generation(
+                    "Unable to create valid UTF-8 String".to_string(),
+                ))
+            },
+        )?))
     }
 
     /// Verifies the CRC32 checksum using constant-time comparison.
     ///
     /// # Security Note
-    /// Uses constant-time comparison to prevent timing attacks that could
-    /// reveal information about the key structure.
+    /// - Uses constant-time comparison to prevent timing attacks that could
+    ///   reveal information about the key structure
+    /// - Performs dummy computation on oversized input to prevent side-channel
+    ///   attacks via timing analysis of error paths
     ///
     /// Checksum is separated by '.' (dot), making it unambiguous from key parts
-    pub fn verify_checksum(key: impl AsRef<str>) -> Result<bool> {
-        let key = key.as_ref();
+    pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
+        let key = key.expose_secret();
         if key.len() > MAX_KEY_LENGTH {
+            // Perform fake work to prevent timing side-channel attacks
+            // This ensures rejection takes similar time as actual verification
+            let _ = self.compute_checksum(DUMMY_KEY);
             return Err(Error::InvalidFormat);
         }
 
@@ -84,72 +111,42 @@ impl KeyGenerator {
             None => return Ok(false),
         };
 
-        let computed = Self::compute_checksum(key_without_checksum);
+        let computed = match self.compute_checksum(key_without_checksum) {
+            Some(computed) => computed,
+            None => {
+                let _ = self.compute_checksum(DUMMY_KEY);
+                return Ok(false);
+            }
+        };
 
         // Use constant-time comparison to prevent timing attacks
-        if checksum.len() != computed.len() {
-            return Ok(false);
-        }
         Ok(checksum.as_bytes().ct_eq(computed.as_bytes()).into())
     }
 
-    pub fn parse_key(key: impl AsRef<str>, separator: Separator) -> Result<(String, String)> {
-        let key = key.as_ref();
-
-        // Prevent DoS: Validate input length before processing
-        if key.len() > MAX_KEY_LENGTH {
-            return Err(Error::InvalidFormat);
+    /// Computes a integrity checksum.
+    fn compute_checksum<T: AsRef<[u8]>>(&self, key: T) -> Option<String> {
+        // FIXME(ARCHITECTURE): We shouldn't perform this check here
+        // This function should just take key and return hash.
+        let checksum_len = *self.config.checksum_length();
+        if checksum_len == usize::MIN {
+            return None;
         }
-
-        // Remove checksum if present (always the last part after final '.')
-        // Checksum is always separated by '.' regardless of key separator
-        // Use rsplit_once to split from right: checksum is last 8 hex chars after final '.'
-        let key_without_checksum = match key.rsplit_once('.') {
-            Some((key_part, checksum_part))
-                if checksum_part.len() == 8
-                    && checksum_part.chars().all(|c| c.is_ascii_hexdigit()) =>
-            {
-                key_part // Return the key part without checksum
+        match self.config.checksum_algorithm() {
+            ChecksumAlgo::Black3 => {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(key.as_ref());
+                let hash = hasher.finalize();
+                Some(hash.to_hex()[..checksum_len].to_string())
             }
-            _ => key, // Not a checksum or no dot, use full key
-        };
-
-        // Format: prefix{sep}environment{sep}base64data
-        // We perform a check while creation of KeyPrefix,
-        // It is guaranteed that prefix won't contain
-        // the sub string: {sep}environment{sep} (which base64 might).
-
-        // So let's say actual env contains `dev`, but
-        // base contains a pattern {sep}live{sep}.
-        // In this case, we will have prefix{sep}dev{sep}someb64{sep}live{sep}remaining
-        // So in order to find actual prefix, we simply need to find the min length.
-        // Since splitting on {sep}live{sep} the length of LHS (i.e. prefix{sep}dev{sep}someb64)
-        // will always be >= length of prefix.
-        let sep_string: &'static str = separator.into();
-        let separators = Environment::variants()
-            .iter()
-            .map(|v| (format!("{sep_string}{v}{sep_string}"), v));
-
-        let mut partitioned_key = separators
-            .map(|v| {
-                key_without_checksum
-                    .split(&v.0)
-                    .take(MAX_PARTS)
-                    .map(|split| (split, v.1))
-                    .collect::<Vec<_>>()
-            })
-            .min_by_key(|v| v.first().map_or(usize::MAX, |v| v.0.len()))
-            .unwrap_or_default()
-            .into_iter();
-        let (prefix, env) = partitioned_key.next().ok_or(Error::InvalidFormat)?;
-
-        Ok((prefix.to_string(), env.to_string()))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ApiKeyManager, HashConfig, Separator};
+    use crate::{ExposeSecret, SecureStringExt};
 
     #[test]
     fn test_base64_url_safe_encoding() {
@@ -214,32 +211,30 @@ mod tests {
 
     #[test]
     fn test_key_generation() {
-        let prefix = KeyPrefix::new("sk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("sk").unwrap();
         let env = Environment::Production;
         let config = KeyConfig::default();
+        let checksum_len = *config.checksum_length();
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
-        assert!(key.as_ref().starts_with("sk-live-"));
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
+        assert!(key.expose_secret().starts_with("sk-live-"));
 
-        // Verify key contains checksum separated by dot
+        // Verify key contains checksum separated by dot (enabled by default)
         assert!(
-            key.as_ref().contains('.'),
+            key.expose_secret().contains('.'),
             "Should have checksum separated by dot"
         );
 
         // Split on . to separate checksum
-        let parts: Vec<&str> = key.as_ref().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Should have key and checksum");
 
         let key_without_checksum = parts[1];
         let checksum_part = parts[0];
 
-        // Verify checksum is 8 hex characters
-        assert_eq!(
-            checksum_part.len(),
-            8,
-            "Checksum should be 8 hex characters"
-        );
+        // Verify checksum is 16 hex characters (BLAKE3 default)
+        assert_eq!(checksum_part.len(), checksum_len);
         assert!(checksum_part.chars().all(|c| c.is_ascii_hexdigit()));
 
         // Split key part on dash - note that base64 data can contain dashes,
@@ -264,115 +259,83 @@ mod tests {
 
     #[test]
     fn test_checksum_generation_with_dot_separator() {
-        let prefix = KeyPrefix::new("pk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("pk").unwrap();
         let env = Environment::Test;
-        let config = KeyConfig::default().with_checksum(true);
+        let config = KeyConfig::default();
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
 
-        // Verify checksum is separated by '.'
+        // Verify checksum is separated by '.' (enabled by default)
         assert!(
-            key.as_ref().contains('.'),
+            key.expose_secret().contains('.'),
             "Checksum should be separated by '.'"
         );
-        assert!(KeyGenerator::verify_checksum(&key).unwrap());
+        assert!(generator.verify_checksum(&key).unwrap());
 
         // Corrupt the checksum - need to preserve the key structure
-        let parts: Vec<&str> = key.as_ref().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2);
         let key_without_checksum = parts[1];
-        let corrupted = format!("{}.wrong123", key_without_checksum);
-        assert!(!KeyGenerator::verify_checksum(&corrupted).unwrap());
+        let corrupted = SecureString::from(format!("{}.wrong123", key_without_checksum));
+        assert!(!generator.verify_checksum(&corrupted).unwrap());
     }
 
     #[test]
     fn test_verify_checksum_dos_protection() {
+        let generator =
+            ApiKeyManager::init("sk", KeyConfig::balanced(), HashConfig::default()).unwrap();
+
         // Test oversized key rejection
-        let huge_key = "a".repeat(1000);
-        assert!(KeyGenerator::verify_checksum(&huge_key).is_err());
+        let huge_key = SecureString::from("a".repeat(1000));
+        assert!(generator.verify_checksum(&huge_key).is_err());
 
         // Test with valid size but invalid format returns false (not error)
-        let invalid = "no_checksum";
-        assert!(!KeyGenerator::verify_checksum(invalid).unwrap());
+        let invalid = SecureString::from("no_checksum".to_string());
+        assert!(!generator.verify_checksum(&invalid).unwrap());
 
         // Test boundary - exactly at limit
-        let at_limit = "sk_live_".to_string() + &"a".repeat(495) + ".abc123";
-        let result = KeyGenerator::verify_checksum(&at_limit);
+        let at_limit = SecureString::from("sk_live_".to_string() + &"a".repeat(495) + ".abc123");
+        let result = generator.verify_checksum(&at_limit);
         assert!(result.is_ok()); // No DoS error, just validation result
     }
 
     #[test]
-    fn test_parse_key_dos_protection() {
-        // Test oversized key rejection
-        let huge_key = "a".repeat(1000);
-        assert!(KeyGenerator::parse_key(&huge_key, Separator::Slash).is_err());
-
-        // Test too many slashes - using splitn(3) prevents DoS by limiting splits
-        // This should succeed but fail validation (not enough valid parts)
-        let many_slashes = "/".repeat(500);
-        // This will parse as: "", "", "//" repeated, which is valid format-wise with splitn
-        // but will fail because first part (prefix) is empty or invalid
-        let result = KeyGenerator::parse_key(&many_slashes, Separator::Slash);
-        // The splitn approach means this will parse into 3 parts: ["", "", "///..."]
-        // First part is empty string which is fine for parsing, it just returns empty prefix
-        // This is actually OK - we're testing that it doesn't cause memory exhaustion
-        assert!(result.is_ok() || result.is_err()); // Either is fine for DoS protection
-
-        // Test valid key still works
-        let valid = "sk/live/abc123";
-        assert!(KeyGenerator::parse_key(valid, Separator::Slash).is_ok());
-
-        // Test valid key with checksum
-        let with_checksum = "sk/live/abc123.abc123";
-        assert!(KeyGenerator::parse_key(with_checksum, Separator::Slash).is_ok());
-    }
-
-    #[test]
-    fn test_key_parsing() {
-        let key = "sk/live/abc123xyz789";
-        let (prefix, env) = KeyGenerator::parse_key(key, Separator::Slash).unwrap();
-        assert_eq!(prefix, "sk");
-        assert_eq!(env, "live");
-
-        // Test parsing with checksum (should ignore checksum)
-        let key_with_checksum = "sk/live/abc123xyz789.checksm";
-        let (prefix, env) = KeyGenerator::parse_key(key_with_checksum, Separator::Slash).unwrap();
-        assert_eq!(prefix, "sk");
-        assert_eq!(env, "live");
-    }
-
-    #[test]
     fn test_entropy_variations() {
-        let prefix = KeyPrefix::new("api", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("api").unwrap();
         let env = Environment::Development;
 
         let config16 = KeyConfig::new().with_entropy(16).unwrap();
-        let key16 = KeyGenerator::generate(prefix.clone(), env.clone(), &config16).unwrap();
+        let generator16 = KeyGenerator::new(prefix.clone(), config16);
+        let key16 = generator16.generate(env.clone()).unwrap();
 
         let config32 = KeyConfig::new().with_entropy(32).unwrap();
-        let key32 = KeyGenerator::generate(prefix, env, &config32).unwrap();
+        let generator32 = KeyGenerator::new(prefix, config32);
+        let key32 = generator32.generate(env).unwrap();
 
         assert!(key32.len() > key16.len());
     }
 
     #[test]
     fn test_checksum_separator_is_dot() {
-        let prefix = KeyPrefix::new("test", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("text").unwrap();
         let env = Environment::Production;
-        let config = KeyConfig::default().with_checksum(true);
+        let config = KeyConfig::default();
+        let checksum_len = *config.checksum_length();
 
-        let key = KeyGenerator::generate(prefix, env, &config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
+        let key = generator.generate(env).unwrap();
 
-        // With dash separator: test-live-data.checksum
+        // With dash separator and checksum (default): test-live-data.checksum
         // Should have exactly 1 dot (for checksum separator only)
-        let dot_count = key.as_ref().matches('.').count();
+        let dot_count = key.expose_secret().matches('.').count();
         assert_eq!(
             dot_count, 1,
             "Should have exactly one dot (for checksum separator)"
         );
 
         // Split on dot to separate checksum
-        let parts: Vec<&str> = key.as_ref().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Should split into key and checksum");
 
         let key_without_checksum = parts[1];
@@ -385,49 +348,42 @@ mod tests {
         let data_part = key_parts.next().unwrap();
 
         // First part should be prefix
-        assert_eq!(prefix_part, "test");
+        assert_eq!(prefix_part, "text");
         // Second part should be environment
         assert_eq!(env_part, "live");
         // Third part is data
         assert!(data_part.len() > 0);
-        // Checksum should be 8 hex characters for CRC32
-        assert_eq!(checksum.len(), 8, "Checksum should be 8 hex characters");
+        assert_eq!(checksum.len(), checksum_len);
     }
 
     #[test]
     fn test_different_separators() {
-        let prefix = KeyPrefix::new("sk", &Separator::default()).unwrap();
+        let prefix = KeyPrefix::new("sk").unwrap();
         let env = Environment::Production;
 
         // Test with Slash
         let config_slash = KeyConfig::default().with_separator(Separator::Slash);
-        let key_slash = KeyGenerator::generate(prefix.clone(), env.clone(), &config_slash).unwrap();
-        assert!(key_slash.as_ref().contains('/'));
-        assert!(!key_slash.as_ref().contains('~'));
-        let (p, e) = KeyGenerator::parse_key(&key_slash, Separator::Slash).unwrap();
-        assert_eq!(p, "sk");
-        assert_eq!(e, "live");
+        let generator_slash = KeyGenerator::new(prefix.clone(), config_slash);
+        let key_slash = generator_slash.generate(env.clone()).unwrap();
+        assert!(key_slash.expose_secret().contains('/'));
+        assert!(!key_slash.expose_secret().contains('~'));
+        assert!(generator_slash.verify_checksum(&key_slash).unwrap());
 
         // Test with Dash (default)
         let config_dash = KeyConfig::default().with_separator(Separator::Dash);
-        let key_dash = KeyGenerator::generate(prefix.clone(), env.clone(), &config_dash).unwrap();
-        assert!(key_dash.as_ref().contains('-'));
+        let generator_dash = KeyGenerator::new(prefix.clone(), config_dash);
+        let key_dash = generator_dash.generate(env.clone()).unwrap();
+        assert!(key_dash.expose_secret().contains('-'));
         // Checksum is always separated by dot
-        let parts: Vec<&str> = key_dash.as_ref().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key_dash.expose_secret().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Key should have checksum separated by dot");
-        let key_without_checksum = parts[1];
-        let (p, e) = KeyGenerator::parse_key(key_without_checksum, Separator::Dash).unwrap();
-        assert_eq!(p, "sk");
-        assert_eq!(e, "live");
+        assert!(generator_dash.verify_checksum(&key_dash).unwrap());
 
         // Test with Tilde
-        let config_tilde = KeyConfig::default()
-            .with_separator(Separator::Tilde)
-            .with_checksum(false);
-        let key_tilde = KeyGenerator::generate(prefix, env, &config_tilde).unwrap();
-        assert!(key_tilde.as_ref().contains('~'));
-        let (p, e) = KeyGenerator::parse_key(&key_tilde, Separator::Tilde).unwrap();
-        assert_eq!(p, "sk");
-        assert_eq!(e, "live");
+        let config_tilde = KeyConfig::default().with_separator(Separator::Tilde);
+        let generator_tilde = KeyGenerator::new(prefix, config_tilde);
+        let key_tilde = generator_tilde.generate(env).unwrap();
+        assert!(key_tilde.expose_secret().contains('~'));
+        assert!(key_tilde.len() > 10);
     }
 }
