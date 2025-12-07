@@ -1,8 +1,75 @@
 use crate::error::ConfigError;
 use derive_getters::Getters;
 use lazy_static::lazy_static;
+use regex::Regex;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
+
+/// Key version for backward compatibility and migration.
+/// Allows different key formats to coexist during transitions.
+///
+/// Version 0 represents no explicit version (backward compatible with existing keys).
+/// Format: prefix{sep}env{sep}base64[.checksum]
+///
+/// Versions 1+ will have version between prefix and environment:
+/// Format: prefix{sep}v{N}{sep}env{sep}base64[.checksum]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct KeyVersion(u32);
+
+impl KeyVersion {
+    /// No version in key
+    /// Format: prefix-env-data.checksum
+    pub const NONE: Self = KeyVersion(0);
+
+    /// Version 1 - First versioned format
+    /// Format: prefix-v1-env-data.checksum
+    pub const V1: Self = KeyVersion(1);
+
+    /// Version 2
+    /// Format: prefix-v2-env-data.checksum
+    pub const V2: Self = KeyVersion(2);
+
+    /// Creates a new key version with the given number
+    pub const fn new(version: u32) -> Self {
+        KeyVersion(version)
+    }
+
+    /// Returns the version number
+    pub const fn number(&self) -> u32 {
+        self.0
+    }
+
+    /// Returns true if this version should be included in the key
+    pub const fn is_versioned(&self) -> bool {
+        self.0 > 0
+    }
+
+    /// Returns the version component string for key generation
+    /// Returns empty string for version 0 (backward compatibility)
+    pub fn component(&self) -> String {
+        if self.0 == 0 {
+            String::new()
+        } else {
+            format!("v{}", self.0)
+        }
+    }
+}
+
+impl Default for KeyVersion {
+    fn default() -> Self {
+        KeyVersion::NONE
+    }
+}
+
+impl std::fmt::Display for KeyVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 == 0 {
+            write!(f, "unversioned")
+        } else {
+            write!(f, "v{}", self.0)
+        }
+    }
+}
 
 /// Deployment environment for API keys (dev/test/staging/live).
 /// Used to visually distinguish keys across different environments and prevent accidental misuse
@@ -21,6 +88,8 @@ pub enum Environment {
 
 lazy_static! {
     static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
+    // Regex to detect version patterns: 'v' followed by one or more digits
+    static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
 }
 
 impl Environment {
@@ -62,6 +131,13 @@ impl KeyPrefix {
         }) {
             return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
         }
+
+        // Prevent prefixes that contain version patterns (e.g., "v1", "v2", "apiv42", "myv1key")
+        // This would conflict with the version component in the key format
+        if VERSION_PATTERN.is_match(&prefix) {
+            return Err(ConfigError::InvalidPrefixVersionLike);
+        }
+
         Ok(Self(prefix))
     }
 
@@ -164,6 +240,7 @@ pub struct KeyConfig {
     checksum_length: usize,
     separator: Separator,
     checksum_algorithm: ChecksumAlgo,
+    version: KeyVersion,
 }
 
 impl KeyConfig {
@@ -207,12 +284,18 @@ impl KeyConfig {
         self
     }
 
+    pub fn with_version(mut self, version: KeyVersion) -> Self {
+        self.version = version;
+        self
+    }
+
     pub fn balanced() -> Self {
         Self {
             entropy_bytes: 24,
             checksum_length: 20,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
+            version: KeyVersion::default(),
         }
     }
 
@@ -222,6 +305,7 @@ impl KeyConfig {
             checksum_length: 32,
             separator: Separator::default(),
             checksum_algorithm: ChecksumAlgo::default(),
+            version: KeyVersion::default(),
         }
     }
 }
@@ -243,6 +327,35 @@ mod tests {
         assert!(KeyPrefix::new("api_key").is_ok());
         assert!(KeyPrefix::new("").is_err());
         assert!(KeyPrefix::new("invalid-prefix").is_err());
+    }
+
+    #[test]
+    fn test_prefix_cannot_be_version_like() {
+        // Should reject any prefix containing version patterns (v followed by digits)
+        assert!(KeyPrefix::new("v1").is_err());
+        assert!(KeyPrefix::new("v2").is_err());
+        assert!(KeyPrefix::new("v42").is_err());
+        assert!(KeyPrefix::new("v100").is_err());
+        assert!(KeyPrefix::new("v0").is_err());
+        assert!(KeyPrefix::new("apiv1").is_err());
+        assert!(KeyPrefix::new("apiv2").is_err());
+        assert!(KeyPrefix::new("myv42key").is_err());
+        assert!(KeyPrefix::new("testv1").is_err());
+        assert!(KeyPrefix::new("v1beta").is_err());
+        assert!(KeyPrefix::new("betav1").is_err());
+        assert!(KeyPrefix::new("keyv123end").is_err());
+
+        // Should allow prefixes without version patterns
+        assert!(KeyPrefix::new("version").is_ok());
+        assert!(KeyPrefix::new("vault").is_ok());
+        assert!(KeyPrefix::new("v_key").is_ok());
+        assert!(KeyPrefix::new("vkey").is_ok());
+        assert!(KeyPrefix::new("api").is_ok());
+        assert!(KeyPrefix::new("sk").is_ok());
+        assert!(KeyPrefix::new("versionkey").is_ok());
+        assert!(KeyPrefix::new("apiversion").is_ok());
+        // Edge case: just 'v' should be allowed
+        assert!(KeyPrefix::new("v").is_ok());
     }
 
     #[test]

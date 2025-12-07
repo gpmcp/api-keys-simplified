@@ -24,6 +24,7 @@ lazy_static.workspace = true
 derive-getters.workspace = true
 derive_more.workspace = true
 secrecy.workspace = true
+regex.workspace = true
 
 [features]
 default = []
