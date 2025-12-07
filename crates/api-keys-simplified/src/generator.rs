@@ -42,10 +42,12 @@ impl KeyGenerator {
             .encode_slice(&random_bytes, &mut encoded)
             .map_err(|e| OperationError::Generation(format!("Base64 encoding failed: {}", e)))?;
 
-        // Format: prefix{sep}environment{sep}base64data[.checksum]
-        // Using configured separator
+        // Format depends on version:
+        // Version 0: prefix{sep}env{sep}base64[.checksum]
+        // Version N: prefix{sep}vN{sep}env{sep}base64[.checksum]
         let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
+        let version_component = self.config.version().component();
 
         // SECURITY: Pre-allocate capacity to prevent reallocations during append operations.
         // Vec::append() can trigger reallocation if capacity is insufficient, which would
@@ -56,7 +58,16 @@ impl KeyGenerator {
             0 => 0,
             n => n + 1, // Plus one for separator.
         };
+
+        // Calculate capacity: prefix + [sep + version] + sep + env + sep + data + checksum
+        let version_length = if version_component.is_empty() {
+            0
+        } else {
+            sep.len() + version_component.len()
+        };
+        
         let capacity = self.prefix.as_str().len()
+            + version_length
             + sep.len()
             + env.len()
             + sep.len()
@@ -65,6 +76,13 @@ impl KeyGenerator {
 
         let mut key = Vec::with_capacity(capacity);
         key.extend_from_slice(self.prefix.as_str().as_bytes());
+        
+        // Add version component if present (between prefix and env)
+        if !version_component.is_empty() {
+            key.extend_from_slice(sep.as_bytes());
+            key.extend_from_slice(version_component.as_bytes());
+        }
+        
         key.extend_from_slice(sep.as_bytes());
         key.extend_from_slice(env.as_bytes());
         key.extend_from_slice(sep.as_bytes());
