@@ -4,8 +4,10 @@
 //! preventing sensitive data from lingering in memory after use.
 
 use std::fmt;
+use derive_more::{AsRef, From};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::__internal::AssertZeroize;
 
 /// A secure string that automatically zeros its memory on drop.
 ///
@@ -27,37 +29,22 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// This type **intentionally does NOT implement `Deref`** to maintain security:
 ///
 /// - **Explicit access**: Requires `.as_ref()` call, making code auditable
-/// - **Prevents silent leakage**: No implicit coercion to `&str` in logs/errors  
+/// - **Prevents silent leakage**: No implicit coercion to `&str` in logs/errors
 /// - **Grep-able security**: Easy to audit with `git grep "\.as_ref\(\)"`
 /// - **Industry standard**: Aligns with `secrecy` crate's proven approach
 ///
 /// The slight ergonomic cost of typing `.as_ref()` is a worthwhile
 /// security trade-off that prevents accidental secret exposure.
-///
-/// # Example
-///
 /// ```
-/// use api_keys_simplified::SecureString;
-/// // Note that unlike this example, never use string literal
-/// // to convert to SecureString. Dropping SecureString will NOT
-/// // zeroize the string literal in memory.
-/// let sensitive = SecureString::from("my_secret_api_key".to_string());
-///
-/// // Explicit access (good - auditable)
-/// let key = sensitive.as_ref();
-///
-/// // Debug output is automatically redacted (safe)
-/// println!("{:?}", sensitive);  // Output: "SecureString([REDACTED])"
-/// ```
-///
-/// // Memory is automatically zeroed when `sensitive` goes out of scope
-/// ```
-#[derive(Zeroize, ZeroizeOnDrop)]
-pub struct SecureString(String);
+#[derive(Debug, derive_more::Display, Zeroize, ZeroizeOnDrop)]
+pub struct SecureString(LogProof<String>);
+
+#[derive(From, AsRef, Zeroize, ZeroizeOnDrop)]
+pub struct LogProof<T: AssertZeroize>(T);
 
 impl PartialEq for SecureString {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
+        self.0.0.as_bytes().ct_eq(other.0.0.as_bytes()).into()
     }
 }
 
@@ -67,17 +54,17 @@ impl SecureString {
     /// The original string is moved and will be zeroed when this
     /// SecureString is dropped.
     pub fn new(s: String) -> Self {
-        Self(s)
+        Self(LogProof(s))
     }
 
     /// Returns the length of the string in bytes.
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.0.0.len()
     }
 
     /// Returns true if the string is empty.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.0.0.is_empty()
     }
 }
 
@@ -89,19 +76,19 @@ impl From<String> for SecureString {
 
 impl AsRef<str> for SecureString {
     fn as_ref(&self) -> &str {
-        &self.0
+        &self.0.0
     }
 }
 
 // Prevent accidental logging of sensitive data
-impl fmt::Debug for SecureString {
+impl<T: AssertZeroize> fmt::Debug for LogProof<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SecureString([REDACTED])")
+        f.write_str("LogProof([REDACTED])")
     }
 }
 
 // Prevent accidental display of sensitive data
-impl fmt::Display for SecureString {
+impl<T: AssertZeroize> fmt::Display for LogProof<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[REDACTED]")
     }
@@ -125,7 +112,7 @@ mod tests {
 
         // Debug output should be redacted
         let debug_output = format!("{:?}", secret);
-        assert_eq!(debug_output, "SecureString([REDACTED])");
+        assert_eq!(debug_output, "SecureString(LogProof([REDACTED]))");
         assert!(!debug_output.contains("sensitive_data"));
 
         // Display output should be redacted

@@ -1,10 +1,9 @@
-use api_keys_simplified::{ApiKeyManager, Environment, Separator};
+use api_keys_simplified::{ApiKeyManager, Environment};
 
 #[test]
 fn test_basic_flow() {
     let generator = ApiKeyManager::init_default_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
-    let _key_str = key.key().as_ref();
     let hash = key.hash();
 
     assert!(generator.verify(key.key(), hash).unwrap());
@@ -62,16 +61,4 @@ fn test_key_uniqueness() {
     assert_ne!(key1.hash(), key2.hash());
 }
 
-#[test]
-fn test_parse_key_components() {
-    let prefixes = ["a", "a_b", "a_b_"];
-    for prefix in prefixes {
-        let generator = ApiKeyManager::init_default_config(prefix).unwrap();
-        let api_key = generator.generate(Environment::staging()).unwrap();
-        println!("{}", api_key.key().as_ref());
-        let (prefix_ans, env) = api_key.parse_key(Separator::default()).unwrap();
 
-        assert_eq!(prefix_ans, prefix);
-        assert_eq!(env, "staging");
-    }
-}

@@ -148,11 +148,22 @@ impl Default for HashConfig {
     }
 }
 
+#[derive(Default, Debug, Clone, IntoStaticStr)]
+pub enum ChecksumAlgo {
+    /// Cryptographic yet fast
+    /// hashing algo, suitable for
+    /// quick checksum verification.
+    #[default]
+    #[strum(serialize = "b3")]
+    Black3,
+}
+
 #[derive(Debug, Clone, Getters)]
 pub struct KeyConfig {
     entropy_bytes: usize,
     include_checksum: bool,
     separator: Separator,
+    checksum_algorithm: ChecksumAlgo,
 }
 
 impl KeyConfig {
@@ -171,8 +182,8 @@ impl KeyConfig {
         Ok(self)
     }
 
-    pub fn with_checksum(mut self, include: bool) -> Self {
-        self.include_checksum = include;
+    pub fn with_checksum(mut self) -> Self {
+        self.include_checksum = true;
         self
     }
 
@@ -184,16 +195,18 @@ impl KeyConfig {
     pub fn balanced() -> Self {
         Self {
             entropy_bytes: 24,
-            include_checksum: true,
+            include_checksum: false,
             separator: Separator::default(),
+            checksum_algorithm: ChecksumAlgo::default(),
         }
     }
 
     pub fn high_security() -> Self {
         Self {
             entropy_bytes: 32,
-            include_checksum: true,
+            include_checksum: false,
             separator: Separator::default(),
+            checksum_algorithm: ChecksumAlgo::default(),
         }
     }
 }

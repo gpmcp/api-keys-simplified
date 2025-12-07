@@ -1,4 +1,4 @@
-use api_keys_simplified::{ApiKeyManager, Environment};
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
 use std::collections::HashSet;
 
 #[test]
@@ -25,7 +25,8 @@ fn test_different_keys_same_hash() {
 
 #[test]
 fn test_checksum_validation() {
-    let generator = ApiKeyManager::init_default_config("chk").unwrap();
+    let config = KeyConfig::default().with_checksum();
+    let generator = ApiKeyManager::init("chk", config, HashConfig::default()).unwrap();
     let with_checksum = generator.generate(Environment::test()).unwrap();
     assert!(generator.verify_checksum(with_checksum.key()).unwrap());
 
@@ -66,7 +67,8 @@ fn test_collision_resistance() {
 
 #[test]
 fn test_key_format_consistency() {
-    let generator = ApiKeyManager::init_default_config("format").unwrap();
+    let config = KeyConfig::default().with_checksum();
+    let generator = ApiKeyManager::init("format", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let key_str = key.key().as_ref();
 
@@ -86,11 +88,11 @@ fn test_argon2_phc_format() {
     let hash = key.hash();
 
     // Argon2 PHC format starts with $argon2id$
-    assert!(hash.as_ref().starts_with("$argon2id$"));
-    assert!(hash.as_ref().contains("$v=19$"));
-    assert!(hash.as_ref().contains("$m="));
-    assert!(hash.as_ref().contains(",t="));
-    assert!(hash.as_ref().contains(",p="));
+    assert!(hash.starts_with("$argon2id$"));
+    assert!(hash.contains("$v=19$"));
+    assert!(hash.contains("$m="));
+    assert!(hash.contains(",t="));
+    assert!(hash.contains(",p="));
 }
 
 #[test]

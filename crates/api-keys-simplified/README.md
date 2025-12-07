@@ -215,9 +215,11 @@ Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 
 ## Progress
 
-- [ ] Rate limiting
-- [ ] Key expiration/rotation support
+- [ ] Key expiration support
+- [ ] Key rotation support
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations
+- [ ] Write e2e tests to ensure memory zeroization
+- [ ] Write e2e tests to verify prevention of side-channel attacks
 
 Contributions welcome! See [CONTRIBUTING.md](https://github.com/gpmcp/api-keys-simplified/blob/main/CONTRIBUTING.md) for guidelines.

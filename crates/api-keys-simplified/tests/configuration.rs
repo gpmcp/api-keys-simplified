@@ -11,7 +11,7 @@ fn test_custom_entropy() {
 
 #[test]
 fn test_with_checksum() {
-    let config = KeyConfig::default().with_checksum(true);
+    let config = KeyConfig::default().with_checksum();
     let generator = ApiKeyManager::init("pk", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
 
@@ -20,7 +20,7 @@ fn test_with_checksum() {
 
 #[test]
 fn test_without_checksum() {
-    let config = KeyConfig::default().with_checksum(false);
+    let config = KeyConfig::default();
     let generator = ApiKeyManager::init("pk", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
 
