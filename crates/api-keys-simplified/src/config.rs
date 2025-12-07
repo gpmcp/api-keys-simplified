@@ -115,9 +115,9 @@ impl HashConfig {
     /// - Memory: 46 MB
     /// - Time: 1 iterations
     /// - Parallelism: 1 threads
-    /// Default recommendation according to
-    /// [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
-    /// Refer the document for best practices at different memory cost.
+    ///   Default recommendation according to
+    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
+    ///   Refer the document for best practices at different memory cost.
     pub fn balanced() -> Self {
         Self {
             memory_cost: 47_104,
@@ -131,8 +131,8 @@ impl HashConfig {
     /// - Memory: 64 MB
     /// - Time: 2 iterations
     /// - Parallelism: 4 threads
-    /// Higher limits then what's suggested in
-    /// [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
+    ///   Higher limits then what's suggested in
+    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
     pub fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
