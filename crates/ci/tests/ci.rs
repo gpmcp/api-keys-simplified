@@ -107,7 +107,8 @@ fn main() {
     let release_pr_job = Job::new("Release Pr")
         .name("Release Pr")
         .runs_on("ubuntu-latest")
-        .needs(vec!["build".to_string(), "lint".to_string()])
+        .add_needs("build")
+        .add_needs("lint")
         .cond(Expression::new(
             "${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}",
         ))

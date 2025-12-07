@@ -29,6 +29,8 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout Code
       uses: actions/checkout@v5
