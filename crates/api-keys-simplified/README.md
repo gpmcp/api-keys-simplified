@@ -14,6 +14,8 @@ A secure, Rust library for generating and validating API keys with built-in secu
 - **Checksum** keys with BLAKE3 for fast DoS protection (2900x speedup)
 - **Verify** keys with constant-time comparison (prevents timing attacks)
 - **Protect** sensitive data with automatic memory zeroing
+- **Expire** keys automatically based on embedded timestamps
+- **Revoke** keys instantly by marking hashes as invalid
 
 ## Quick Start
 
@@ -46,12 +48,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provided_key = request.headers().get("X-API-Key")?;
     let stored_hash = database::get_user_key_hash(user_id)?;
 
-    if manager.verify(&provided_key, &stored_hash)? {
-        // Key is valid - grant access
-        handle_request(request)
-    } else {
-        // Key is invalid - rejected in ~20μs (not ~300ms)
-        Err("Invalid API key")
+    match manager.verify(&provided_key, &stored_hash)? {
+        KeyStatus::Valid => {
+            // Key is valid - grant access
+            handle_request(request)
+        }
+        KeyStatus::Invalid => {
+            // Key is invalid or revoked - rejected in ~20μs (not ~300ms)
+            Err("Invalid API key")
+        }
+        KeyStatus::Expired => {
+            // Key has expired
+            Err("API key expired")
+        }
     }
 }
 ```
@@ -59,23 +68,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Key Format
 
 ```
-prefix-environment-random_data.checksum
-     │         │            │         │
-     │         │            │         └─ BLAKE3 (recommended, 16 hex chars)
-     │         │            └─────────── Base64URL (192 bits default)
-     │         └──────────────────────── dev/test/staging/live
-     └────────────────────────────────── User-defined (e.g., acme_sk, stripe_pk)
+prefix[-version]-environment-random_data[.expiry][.checksum]
+     │     │           │            │       │         │
+     │     │           │            │       │         └─ BLAKE3 (recommended, 16 hex chars)
+     │     │           │            │       └─────────── Optional: 11-char base64url timestamp
+     │     │           │            └─────────────────── Base64URL (192 bits default)
+     │     │           └──────────────────────────────── dev/test/staging/live
+     │     └──────────────────────────────────────────── Optional: vN (v1, v2, etc.)
+     └────────────────────────────────────────────────── User-defined (e.g., acme_sk, stripe_pk)
 ```
 
 **Examples:**
 
-- `gpmcp_sk-live-Xf8kP2qW9zLmN4vC8aH5tJw1bQmK3rN9.a1b2c3d4e5f6g7h8`
-- `acme_api-dev-Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.9f8e7d6c5b4a3210`
+- Unversioned (default): `gpmcp_sk-live-Xf8kP2qW9zLmN4vC8aH5tJw1bQmK3rN9.a1b2c3d4e5f6g7h8`
+- With version: `gpmcp_sk-v1-live-Xf8kP2qW9zLmN4vC8aH5tJw1bQmK3rN9.a1b2c3d4e5f6g7h8`
+- With expiry: `acme_api-dev-Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.AAAAAGldxGE.9f8e7d6c5b4a3210`
+- Full format: `api-v2-live-Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.AAAAAGldxGE.9f8e7d6c5b4a3210`
 
 **Checksum provides:**
 - 2900x faster rejection of invalid keys
 - DoS protection against malformed requests
 - Integrity verification before expensive Argon2
+
+**Expiration provides:**
+- Time-based access control (trial keys, temporary access)
+- Stateless expiry (no database cleanup needed)
+- Automatic rejection after timestamp
+
+**Versioning provides:**
+- Gradual migration between key formats
+- Clear identification of key format version
+- Backward compatibility (version 0 = unversioned)
+- Future-proof format evolution
 
 ## Why Use This?
 
@@ -132,7 +156,7 @@ Common API key security mistakes:
 ### Best Practices
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig, KeyStatus};
 
 // ✅ Checksums enabled by default (DoS protection - use .disable_checksum() to turn off)
 let manager = ApiKeyManager::init_default_config("myapp_sk")?;
@@ -156,6 +180,34 @@ fn rotate_key(manager: &ApiKeyManager, user_id: u64) -> Result<ApiKey> {
     db.revoke_old_keys(user_id)?;
     db.save_new_hash(user_id, new_key.hash())?;
     Ok(new_key)
+}
+
+// ✅ Use expiration for temporary access (trials, partners)
+let trial_expiry = Utc::now() + Duration::days(7);
+let trial_key = manager.generate_with_expiry(Environment::production(), trial_expiry)?;
+db.save(user_id, trial_key.hash())?;
+
+// ✅ Implement key revocation for compromised keys
+fn revoke_key(user_id: u64, key_hash: &str) -> Result<()> {
+    // Mark hash as revoked in database
+    db.mark_revoked(user_id, key_hash)?;
+    Ok(())
+}
+
+// ✅ Check revocation status during verification
+fn verify_with_revocation(manager: &ApiKeyManager, key: &SecureString, user_id: u64) -> Result<bool> {
+    let stored_hash = db.get_user_key_hash(user_id)?;
+    
+    // Check if key is revoked first (fast database check)
+    if db.is_revoked(user_id, &stored_hash)? {
+        return Ok(false);
+    }
+    
+    // Then verify key status
+    match manager.verify(key, &stored_hash)? {
+        KeyStatus::Valid => Ok(true),
+        KeyStatus::Invalid | KeyStatus::Expired => Ok(false),
+    }
 }
 
 // ✅ Rate limit verification (still important with checksums)
@@ -233,9 +285,9 @@ Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 
 ## Progress
 
-- [ ] Key expiration support
-- [ ] Key rotation support
+- [x] Key expiration support
 - [x] Key versioning
+- [ ] Key rotation
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations
 - [ ] Write e2e tests to ensure memory zeroization
