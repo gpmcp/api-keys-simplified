@@ -32,7 +32,10 @@ fn test_high_security_preset() {
     let key = generator.generate(Environment::production()).unwrap();
 
     assert!(key.key().len() > 50); // Higher entropy = longer key
-    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        generator.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]
@@ -54,7 +57,10 @@ fn test_custom_hash_config() {
     let generator = ApiKeyManagerV0::init("text", config, hash_config).unwrap();
     let key = generator.generate(Environment::dev()).unwrap();
 
-    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        generator.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]

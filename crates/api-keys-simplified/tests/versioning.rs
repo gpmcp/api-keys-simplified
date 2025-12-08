@@ -95,13 +95,28 @@ fn test_different_versions_verify_correctly() {
     let key_v2 = manager_v2.generate(Environment::production()).unwrap();
 
     // Each manager should successfully verify its own key
-    assert_eq!(manager_v0.verify(key_v0.key(), key_v0.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(manager_v1.verify(key_v1.key(), key_v1.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(manager_v2.verify(key_v2.key(), key_v2.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        manager_v0.verify(key_v0.key(), key_v0.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        manager_v1.verify(key_v1.key(), key_v1.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        manager_v2.verify(key_v2.key(), key_v2.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Keys should not cross-verify (wrong hash)
-    assert_eq!(manager_v0.verify(key_v1.key(), key_v0.hash()).unwrap(), KeyStatus::Invalid);
-    assert_eq!(manager_v1.verify(key_v2.key(), key_v1.hash()).unwrap(), KeyStatus::Invalid);
+    assert_eq!(
+        manager_v0.verify(key_v1.key(), key_v0.hash()).unwrap(),
+        KeyStatus::Invalid
+    );
+    assert_eq!(
+        manager_v1.verify(key_v2.key(), key_v1.hash()).unwrap(),
+        KeyStatus::Invalid
+    );
 }
 
 #[test]
@@ -120,10 +135,22 @@ fn test_versioned_keys_support_all_environments() {
     assert!(prod.key().expose_secret().starts_with("sk-v1-live-"));
 
     // All should verify
-    assert_eq!(manager.verify(dev.key(), dev.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(manager.verify(test.key(), test.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(manager.verify(staging.key(), staging.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(manager.verify(prod.key(), prod.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        manager.verify(dev.key(), dev.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        manager.verify(test.key(), test.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        manager.verify(staging.key(), staging.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        manager.verify(prod.key(), prod.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]
@@ -139,7 +166,10 @@ fn test_versioned_keys_with_different_separators() {
 
     // Should use slash separator but version format stays the same
     assert!(key_str.starts_with("sk/v1/live/"));
-    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        manager.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]
@@ -156,7 +186,10 @@ fn test_versioned_keys_without_checksum() {
     assert!(!key_str.contains('.'), "Should NOT have checksum separator");
 
     // Should still verify (checksum validation is skipped)
-    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        manager.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]
@@ -169,7 +202,10 @@ fn test_versioned_keys_with_high_security() {
     // Should have version and be longer due to high security settings
     assert!(key_str.starts_with("sk-v2-live-"));
     assert!(key_str.len() > 100, "High security key should be longer");
-    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        manager.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 }
 
 #[test]
@@ -184,8 +220,14 @@ fn test_migration_scenario() {
     let new_key = new_manager.generate(Environment::production()).unwrap();
 
     // Both systems should work independently
-    assert_eq!(old_manager.verify(old_key.key(), old_key.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(new_manager.verify(new_key.key(), new_key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        old_manager.verify(old_key.key(), old_key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        new_manager.verify(new_key.key(), new_key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Keys should look different
     assert!(!old_key.key().expose_secret().contains("-v1-"));

@@ -254,9 +254,15 @@ mod tests {
         assert!(key_str.expose_secret().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
-        assert_eq!(generator.verify(key_str, hash_str).unwrap(), KeyStatus::Valid);
+        assert_eq!(
+            generator.verify(key_str, hash_str).unwrap(),
+            KeyStatus::Valid
+        );
         let wrong_key = SecureString::from("wrong_key".to_string());
-        assert_eq!(generator.verify(&wrong_key, hash_str).unwrap(), KeyStatus::Invalid);
+        assert_eq!(
+            generator.verify(&wrong_key, hash_str).unwrap(),
+            KeyStatus::Invalid
+        );
     }
 
     #[test]

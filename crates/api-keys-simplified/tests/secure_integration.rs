@@ -49,7 +49,10 @@ mod secure_integration_tests {
         let another_key = SecureString::from(key_str);
 
         // Verification should work with the same data
-        assert_eq!(generator.verify(&another_key, &hash_str).unwrap(), KeyStatus::Valid);
+        assert_eq!(
+            generator.verify(&another_key, &hash_str).unwrap(),
+            KeyStatus::Valid
+        );
     }
 
     #[test]
@@ -93,7 +96,10 @@ mod secure_integration_tests {
 
         // Verification still works with the copied strings
         let verify_key = SecureString::from(key_str);
-        assert_eq!(generator.verify(&verify_key, &hash_str).unwrap(), KeyStatus::Valid);
+        assert_eq!(
+            generator.verify(&verify_key, &hash_str).unwrap(),
+            KeyStatus::Valid
+        );
 
         // The SecureString inside key1 was zeroed before deallocation
         // This is guaranteed by ZeroizeOnDrop trait implementation

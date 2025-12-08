@@ -1,5 +1,7 @@
 use api_keys_simplified::ExposeSecret;
-use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
+};
 use std::time::Instant;
 
 #[test]
@@ -24,7 +26,11 @@ fn test_checksum_prevents_expensive_verification() {
     let duration = start.elapsed();
 
     // Should return Invalid quickly (checksum validation, NOT Argon2)
-    assert_eq!(result, KeyStatus::Invalid, "Invalid checksum should fail verification");
+    assert_eq!(
+        result,
+        KeyStatus::Invalid,
+        "Invalid checksum should fail verification"
+    );
 
     // Should be MUCH faster than Argon2 (< 1ms vs ~100ms for Argon2)
     assert!(
@@ -47,7 +53,11 @@ fn test_valid_checksum_proceeds_to_argon2() {
     let duration = start.elapsed();
 
     // Should succeed
-    assert_eq!(result, KeyStatus::Valid, "Valid key should verify successfully");
+    assert_eq!(
+        result,
+        KeyStatus::Valid,
+        "Valid key should verify successfully"
+    );
 
     // Should take normal Argon2 time (> 10ms typically for balanced config)
     assert!(
@@ -120,9 +130,15 @@ fn test_without_checksum_still_works() {
     let key = generator.generate(Environment::test()).unwrap();
 
     // Should still verify correctly
-    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        generator.verify(key.key(), key.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Invalid key should still fail
     let invalid = SecureString::from("nochk-test-invalid".to_string());
-    assert_eq!(generator.verify(&invalid, key.hash()).unwrap(), KeyStatus::Invalid);
+    assert_eq!(
+        generator.verify(&invalid, key.hash()).unwrap(),
+        KeyStatus::Invalid
+    );
 }

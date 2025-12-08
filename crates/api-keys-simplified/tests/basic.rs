@@ -11,7 +11,10 @@ fn test_basic_flow() {
 
     // For verifying a different key against the same hash, create a new ApiKey
     let wrong_key = api_keys_simplified::SecureString::from("wrong_key".to_string());
-    assert_eq!(generator.verify(&wrong_key, hash).unwrap(), KeyStatus::Invalid);
+    assert_eq!(
+        generator.verify(&wrong_key, hash).unwrap(),
+        KeyStatus::Invalid
+    );
 }
 
 #[test]

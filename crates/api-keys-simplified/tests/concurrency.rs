@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
+};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -144,13 +146,28 @@ fn test_clone_safety_and_config_isolation() {
     assert_ne!(key1.key().expose_secret(), key3.key().expose_secret());
 
     // Verify with own generators
-    assert_eq!(gen1.verify(key1.key(), key1.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(gen2.verify(key2.key(), key2.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(gen3.verify(key3.key(), key3.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        gen1.verify(key1.key(), key1.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen2.verify(key2.key(), key2.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen3.verify(key3.key(), key3.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Cross-verify clones (same config)
-    assert_eq!(gen1.verify(key2.key(), key2.hash()).unwrap(), KeyStatus::Valid);
-    assert_eq!(gen2.verify(key1.key(), key1.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(
+        gen1.verify(key2.key(), key2.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen2.verify(key1.key(), key1.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Different prefixes don't cross-verify
     assert!(key1.key().expose_secret().starts_with("g1-"));

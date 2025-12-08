@@ -100,12 +100,8 @@ impl KeyValidator {
         // We don't need to put dummy load beyond this point
         // since we have already processed the hash comparison.
         match self.verify_expiry(token_parts) {
-            Ok(KeyStatus::Expired) => {
-                Ok(KeyStatus::Expired)
-            }
-            _ => {
-                Ok(KeyStatus::Valid)
-            }
+            Ok(KeyStatus::Expired) => Ok(KeyStatus::Expired),
+            _ => Ok(KeyStatus::Valid),
         }
     }
     fn dummy_load(&self) {

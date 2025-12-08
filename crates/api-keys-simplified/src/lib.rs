@@ -37,8 +37,8 @@ mod error;
 mod generator;
 mod hasher;
 mod secure;
-mod validator;
 mod token_parser;
+mod validator;
 
 pub use config::{
     ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator,
