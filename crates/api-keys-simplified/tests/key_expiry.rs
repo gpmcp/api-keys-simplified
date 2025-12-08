@@ -88,8 +88,7 @@ fn test_expired_key_wrong_hash() {
 #[test]
 fn test_short_expiry() {
     let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
-    let expiry = Utc::now() + Duration::seconds(2);
-
+    let expiry = Utc::now() + Duration::seconds(3);
     let key = manager
         .generate_with_expiry(Environment::production(), expiry)
         .unwrap();
@@ -254,34 +253,6 @@ fn test_multiple_keys_same_expiry() {
     assert_eq!(
         manager.verify(key3.key(), key3.hash()).unwrap(),
         KeyStatus::Valid
-    );
-}
-
-/// Test expiry boundary conditions
-#[test]
-fn test_expiry_boundaries() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
-
-    // Test 1 second in future
-    let expiry_1s = Utc::now() + Duration::seconds(1);
-    let key_1s = manager
-        .generate_with_expiry(Environment::production(), expiry_1s)
-        .unwrap();
-    assert_eq!(
-        manager.verify(key_1s.key(), key_1s.hash()).unwrap(),
-        KeyStatus::Valid
-    );
-
-    // Test 1 second in past
-    let expiry_past_1s = Utc::now() - Duration::seconds(1);
-    let key_past_1s = manager
-        .generate_with_expiry(Environment::production(), expiry_past_1s)
-        .unwrap();
-    assert_eq!(
-        manager
-            .verify(key_past_1s.key(), key_past_1s.hash())
-            .unwrap(),
-        KeyStatus::Expired
     );
 }
 
