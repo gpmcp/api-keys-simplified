@@ -24,7 +24,7 @@ fn split_last_dot(i: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 /// Parse token into parts: `<key>[.<expiry_11>][.<checksum>]`
-/// 
+///
 /// When `has_checksum` is true, last segment is always checksum.
 /// When false, last segment (if 11 valid base64url chars) is expiry.
 pub fn parse_token(input: &[u8], has_checksum: bool) -> IResult<&[u8], Parts<'_>> {
@@ -186,7 +186,6 @@ mod tests {
         );
     }
 
-
     // Edge case tests
     #[test]
     fn test_empty_input() {
@@ -197,7 +196,10 @@ mod tests {
     #[test]
     fn test_single_dot_only() {
         let result = parse_token(b".", true);
-        assert!(result.is_err(), "Single dot should fail (empty key and tail)");
+        assert!(
+            result.is_err(),
+            "Single dot should fail (empty key and tail)"
+        );
     }
 
     #[test]
@@ -353,7 +355,10 @@ mod tests {
         // "checksum" is 8 chars, not 11, so not expiry
         // Split "mykey.short" -> "mykey" and "short"
         // "short" is 5 chars, not 11, so error
-        assert!(result.is_err(), "Middle segment must be exactly 11 chars for expiry");
+        assert!(
+            result.is_err(),
+            "Middle segment must be exactly 11 chars for expiry"
+        );
     }
 
     #[test]

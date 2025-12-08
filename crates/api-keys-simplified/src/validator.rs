@@ -32,7 +32,10 @@ impl KeyValidator {
     /// Maximum allowed length for password hashes (prevents DoS via malformed hashes)
     const MAX_HASH_LENGTH: usize = 512;
 
-    pub fn new(hash_config: &HashConfig, has_checksum: bool) -> std::result::Result<KeyValidator, ConfigError> {
+    pub fn new(
+        hash_config: &HashConfig,
+        has_checksum: bool,
+    ) -> std::result::Result<KeyValidator, ConfigError> {
         let dummy_hash = format!("$argon2id$v=19$m={},t={},p={}$0bJKH8iokgID0PWXnrsXvw$oef42xfOKBQMkCpvoQTeVHLhsYf+EQWMc2u4Ebn1MUo", hash_config.memory_cost(), hash_config.time_cost(), hash_config.parallelism());
         let hash =
             PasswordHashString::new(&dummy_hash).map_err(|_| ConfigError::InvalidArgon2Hash)?;
