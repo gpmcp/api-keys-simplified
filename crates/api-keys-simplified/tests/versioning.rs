@@ -1,10 +1,10 @@
 use api_keys_simplified::{
-    ApiKeyManager, Environment, ExposeSecret, HashConfig, KeyConfig, KeyVersion,
+    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, KeyVersion,
 };
 
 #[test]
 fn test_unversioned_key_format() {
-    let manager = ApiKeyManager::init_default_config("sk").unwrap();
+    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -20,7 +20,7 @@ fn test_unversioned_key_format() {
 #[test]
 fn test_versioned_key_v1_format() {
     let config = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -32,7 +32,7 @@ fn test_versioned_key_v1_format() {
 #[test]
 fn test_versioned_key_v2_format() {
     let config = KeyConfig::default().with_version(KeyVersion::V2);
-    let manager = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -44,7 +44,7 @@ fn test_versioned_key_v2_format() {
 #[test]
 fn test_custom_version_number() {
     let config = KeyConfig::default().with_version(KeyVersion::new(42));
-    let manager = ApiKeyManager::init("api", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("api", config, HashConfig::default()).unwrap();
     let key = manager.generate(Environment::staging()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -83,31 +83,31 @@ fn test_version_display() {
 #[test]
 fn test_different_versions_verify_correctly() {
     // Generate keys with different versions
-    let manager_v0 = ApiKeyManager::init_default_config("sk").unwrap();
+    let manager_v0 = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key_v0 = manager_v0.generate(Environment::production()).unwrap();
 
     let config_v1 = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager_v1 = ApiKeyManager::init("sk", config_v1, HashConfig::default()).unwrap();
+    let manager_v1 = ApiKeyManagerV0::init("sk", config_v1, HashConfig::default()).unwrap();
     let key_v1 = manager_v1.generate(Environment::production()).unwrap();
 
     let config_v2 = KeyConfig::default().with_version(KeyVersion::V2);
-    let manager_v2 = ApiKeyManager::init("sk", config_v2, HashConfig::default()).unwrap();
+    let manager_v2 = ApiKeyManagerV0::init("sk", config_v2, HashConfig::default()).unwrap();
     let key_v2 = manager_v2.generate(Environment::production()).unwrap();
 
     // Each manager should successfully verify its own key
-    assert!(manager_v0.verify(key_v0.key(), key_v0.hash()).unwrap());
-    assert!(manager_v1.verify(key_v1.key(), key_v1.hash()).unwrap());
-    assert!(manager_v2.verify(key_v2.key(), key_v2.hash()).unwrap());
+    assert_eq!(manager_v0.verify(key_v0.key(), key_v0.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(manager_v1.verify(key_v1.key(), key_v1.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(manager_v2.verify(key_v2.key(), key_v2.hash()).unwrap(), KeyStatus::Valid);
 
     // Keys should not cross-verify (wrong hash)
-    assert!(!manager_v0.verify(key_v1.key(), key_v0.hash()).unwrap());
-    assert!(!manager_v1.verify(key_v2.key(), key_v1.hash()).unwrap());
+    assert_eq!(manager_v0.verify(key_v1.key(), key_v0.hash()).unwrap(), KeyStatus::Invalid);
+    assert_eq!(manager_v1.verify(key_v2.key(), key_v1.hash()).unwrap(), KeyStatus::Invalid);
 }
 
 #[test]
 fn test_versioned_keys_support_all_environments() {
     let config = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
 
     let dev = manager.generate(Environment::dev()).unwrap();
     let test = manager.generate(Environment::test()).unwrap();
@@ -120,10 +120,10 @@ fn test_versioned_keys_support_all_environments() {
     assert!(prod.key().expose_secret().starts_with("sk-v1-live-"));
 
     // All should verify
-    assert!(manager.verify(dev.key(), dev.hash()).unwrap());
-    assert!(manager.verify(test.key(), test.hash()).unwrap());
-    assert!(manager.verify(staging.key(), staging.hash()).unwrap());
-    assert!(manager.verify(prod.key(), prod.hash()).unwrap());
+    assert_eq!(manager.verify(dev.key(), dev.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(manager.verify(test.key(), test.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(manager.verify(staging.key(), staging.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(manager.verify(prod.key(), prod.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
@@ -133,13 +133,13 @@ fn test_versioned_keys_with_different_separators() {
     let config = KeyConfig::default()
         .with_version(KeyVersion::V1)
         .with_separator(Separator::Slash);
-    let manager = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
     // Should use slash separator but version format stays the same
     assert!(key_str.starts_with("sk/v1/live/"));
-    assert!(manager.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn test_versioned_keys_without_checksum() {
     let config = KeyConfig::default()
         .with_version(KeyVersion::V1)
         .disable_checksum();
-    let manager = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -156,36 +156,36 @@ fn test_versioned_keys_without_checksum() {
     assert!(!key_str.contains('.'), "Should NOT have checksum separator");
 
     // Should still verify (checksum validation is skipped)
-    assert!(manager.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
 fn test_versioned_keys_with_high_security() {
     let config = KeyConfig::high_security().with_version(KeyVersion::V2);
-    let manager = ApiKeyManager::init("sk", config, HashConfig::high_security()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::high_security()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
     // Should have version and be longer due to high security settings
     assert!(key_str.starts_with("sk-v2-live-"));
     assert!(key_str.len() > 100, "High security key should be longer");
-    assert!(manager.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(manager.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
 fn test_migration_scenario() {
     // Simulate old system
-    let old_manager = ApiKeyManager::init_default_config("sk").unwrap();
+    let old_manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let old_key = old_manager.generate(Environment::production()).unwrap();
 
     // Simulate new system with versioning
     let new_config = KeyConfig::default().with_version(KeyVersion::V1);
-    let new_manager = ApiKeyManager::init("sk", new_config, HashConfig::default()).unwrap();
+    let new_manager = ApiKeyManagerV0::init("sk", new_config, HashConfig::default()).unwrap();
     let new_key = new_manager.generate(Environment::production()).unwrap();
 
     // Both systems should work independently
-    assert!(old_manager.verify(old_key.key(), old_key.hash()).unwrap());
-    assert!(new_manager.verify(new_key.key(), new_key.hash()).unwrap());
+    assert_eq!(old_manager.verify(old_key.key(), old_key.hash()).unwrap(), KeyStatus::Valid);
+    assert_eq!(new_manager.verify(new_key.key(), new_key.hash()).unwrap(), KeyStatus::Valid);
 
     // Keys should look different
     assert!(!old_key.key().expose_secret().contains("-v1-"));

@@ -6,18 +6,18 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use api_keys_simplified::{ApiKeyManager, Environment, ExposeSecret};
+//! use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Generate a new key with checksum (enabled by default for DoS protection)
-//! let generator = ApiKeyManager::init_default_config("sk")?;
+//! let generator = ApiKeyManagerV0::init_default_config("sk")?;
 //! let key = generator.generate(Environment::production())?;
 //! println!("Key: {}", key.key().expose_secret()); // Show once to user
 //! let hash = key.hash(); // Store this in database
 //!
 //! // Validate a key - checksum is verified first for DoS protection
-//! let is_valid = generator.verify(key.key(), hash)?;
-//! assert!(is_valid);
+//! let status = generator.verify(key.key(), hash)?;
+//! assert_eq!(status, KeyStatus::Valid);
 //! # Ok(())
 //! # }
 //! ```
@@ -38,13 +38,15 @@ mod generator;
 mod hasher;
 mod secure;
 mod validator;
+mod token_parser;
 
 pub use config::{
     ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator,
 };
-pub use domain::{ApiKey, ApiKeyManager, Hash, NoHash};
+pub use domain::{ApiKey, ApiKeyManagerV0, Hash, NoHash};
 pub use error::{ConfigError, Error, Result};
 pub use secure::{SecureString, SecureStringExt};
+pub use validator::KeyStatus;
 
 // Re-export secrecy traits for convenience
 pub use secrecy::ExposeSecret;

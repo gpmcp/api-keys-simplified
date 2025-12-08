@@ -1,11 +1,11 @@
 use api_keys_simplified::ExposeSecret;
-use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig, SecureString};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString};
 use std::time::Instant;
 
 #[test]
 fn test_checksum_prevents_expensive_verification() {
     // This test verifies VULN-1 fix: checksum validation happens BEFORE Argon2
-    let generator = ApiKeyManager::init_default_config("dos").unwrap();
+    let generator = ApiKeyManagerV0::init_default_config("dos").unwrap();
 
     // Generate a valid key with checksum
     let valid_key = generator.generate(Environment::test()).unwrap();
@@ -23,8 +23,8 @@ fn test_checksum_prevents_expensive_verification() {
     let result = generator.verify(&invalid_key, &valid_hash).unwrap();
     let duration = start.elapsed();
 
-    // Should return false quickly (checksum validation, NOT Argon2)
-    assert!(!result, "Invalid checksum should fail verification");
+    // Should return Invalid quickly (checksum validation, NOT Argon2)
+    assert_eq!(result, KeyStatus::Invalid, "Invalid checksum should fail verification");
 
     // Should be MUCH faster than Argon2 (< 1ms vs ~100ms for Argon2)
     assert!(
@@ -38,7 +38,7 @@ fn test_checksum_prevents_expensive_verification() {
 fn test_valid_checksum_proceeds_to_argon2() {
     // Verify that valid checksums still go through Argon2 verification
     let config = KeyConfig::default().disable_checksum();
-    let generator = ApiKeyManager::init("verify", config, HashConfig::default()).unwrap();
+    let generator = ApiKeyManagerV0::init("verify", config, HashConfig::default()).unwrap();
 
     let key = generator.generate(Environment::production()).unwrap();
 
@@ -47,7 +47,7 @@ fn test_valid_checksum_proceeds_to_argon2() {
     let duration = start.elapsed();
 
     // Should succeed
-    assert!(result, "Valid key should verify successfully");
+    assert_eq!(result, KeyStatus::Valid, "Valid key should verify successfully");
 
     // Should take normal Argon2 time (> 10ms typically for balanced config)
     assert!(
@@ -61,9 +61,9 @@ fn test_valid_checksum_proceeds_to_argon2() {
 fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
     let with_checksum =
-        ApiKeyManager::init("dos1", KeyConfig::default(), HashConfig::default()).unwrap();
+        ApiKeyManagerV0::init("dos1", KeyConfig::default(), HashConfig::default()).unwrap();
 
-    let without_checksum = ApiKeyManager::init(
+    let without_checksum = ApiKeyManagerV0::init(
         "dos2",
         KeyConfig::default().disable_checksum(),
         HashConfig::default(),
@@ -110,7 +110,7 @@ fn test_dos_protection_comparison() {
 fn test_without_checksum_still_works() {
     // Verify that when checksum is disabled, verify() still works
     // (but doesn't get DoS protection)
-    let generator = ApiKeyManager::init(
+    let generator = ApiKeyManagerV0::init(
         "nochk",
         KeyConfig::default().disable_checksum(),
         HashConfig::default(),
@@ -120,9 +120,9 @@ fn test_without_checksum_still_works() {
     let key = generator.generate(Environment::test()).unwrap();
 
     // Should still verify correctly
-    assert!(generator.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 
     // Invalid key should still fail
     let invalid = SecureString::from("nochk-test-invalid".to_string());
-    assert!(!generator.verify(&invalid, key.hash()).unwrap());
+    assert_eq!(generator.verify(&invalid, key.hash()).unwrap(), KeyStatus::Invalid);
 }

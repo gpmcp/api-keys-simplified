@@ -1,4 +1,5 @@
 use crate::error::ConfigError;
+use crate::validator::KeyStatus;
 use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
     error::Result,
@@ -8,6 +9,7 @@ use crate::{
     validator::KeyValidator,
     ExposeSecret, HashConfig,
 };
+use chrono::{DateTime, Utc};
 use derive_getters::Getters;
 use std::fmt::Debug;
 
@@ -17,7 +19,7 @@ use std::fmt::Debug;
 /// to operate. It does NOT contain ANY sensitive
 /// data.
 #[derive(Clone, Getters)]
-pub struct ApiKeyManager {
+pub struct ApiKeyManagerV0 {
     #[getter(skip)]
     generator: KeyGenerator,
     hasher: KeyHasher,
@@ -46,7 +48,7 @@ pub struct ApiKey<Hash> {
     hash: Hash,
 }
 
-impl ApiKeyManager {
+impl ApiKeyManagerV0 {
     pub fn init(
         prefix: impl Into<String>,
         config: KeyConfig,
@@ -81,16 +83,98 @@ impl ApiKeyManager {
         )
     }
 
+    /// Generates a new API key for the specified environment.
+    ///
+    /// The generated key includes a checksum (if enabled) for fast DoS protection.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// let key = manager.generate(Environment::production())?;
+    /// println!("Key: {}", key.key().expose_secret());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn generate(&self, environment: impl Into<Environment>) -> Result<ApiKey<Hash>> {
-        let key = self.generator.generate(environment.into())?;
+        let key = self.generator.generate(environment.into(), None)?;
         let api_key = ApiKey::new(key).into_hashed(&self.hasher)?;
 
         Ok(api_key)
     }
 
-    pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<bool> {
+    /// Generates a new API key with an expiration timestamp.
+    ///
+    /// The expiration is embedded in the key itself, making it stateless.
+    /// Keys are automatically rejected after the expiry time without database lookups.
+    ///
+    /// # Use Cases
+    ///
+    /// - Trial keys (7-30 days)
+    /// - Temporary partner access
+    /// - Time-limited API access
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment};
+    /// # use chrono::{Utc, Duration};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// // Create a 7-day trial key
+    /// let expiry = Utc::now() + Duration::days(7);
+    /// let key = manager.generate_with_expiry(Environment::production(), expiry)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn generate_with_expiry(
+        &self,
+        environment: impl Into<Environment>,
+        expiry: DateTime<Utc>,
+    ) -> Result<ApiKey<Hash>> {
+        let key = self.generator.generate(environment.into(), Some(expiry))?;
+        let api_key = ApiKey::new(key).into_hashed(&self.hasher)?;
+
+        Ok(api_key)
+    }
+
+    /// Verifies an API key against a stored hash.
+    ///
+    /// Returns `KeyStatus` indicating whether the key is valid, invalid, or expired.
+    ///
+    /// # Security Flow
+    ///
+    /// 1. **Checksum validation** (if enabled): Rejects invalid keys in ~20μs
+    /// 2. **Argon2 verification**: Verifies hash for valid checksums (~300ms)
+    /// 3. **Expiry check**: Returns `Expired` if the key's timestamp has passed
+    ///
+    /// # Returns
+    ///
+    /// - `KeyStatus::Valid` - Key is valid and not expired
+    /// - `KeyStatus::Invalid` - Key is invalid (wrong key, hash mismatch, or checksum failed)
+    /// - `KeyStatus::Expired` - Key is valid but has expired
+    ///
+    /// # Note on Revocation
+    ///
+    /// This method does NOT check revocation status. To implement key revocation:
+    /// 1. Mark the hash as revoked in your database
+    /// 2. Check revocation status before calling this method
+    /// 3. Only call `verify()` for non-revoked hashes
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// # let key = manager.generate(Environment::production()).unwrap();
+    /// match manager.verify(key.key(), key.hash())? {
+    ///     KeyStatus::Valid => { /* grant access */ },
+    ///     KeyStatus::Invalid => { /* reject - wrong key */ },
+    ///     KeyStatus::Expired => { /* reject - key expired */ },
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<KeyStatus> {
         if self.include_checksum && !self.verify_checksum(key)? {
-            return Ok(false);
+            return Ok(KeyStatus::Invalid);
         }
 
         self.validator
@@ -108,8 +192,8 @@ impl<T> ApiKey<T> {
     /// To access the underlying string, use `.expose_secret()` on the returned `SecureString`:
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManager, Environment, ExposeSecret};
-    /// # let generator = ApiKeyManager::init_default_config("sk").unwrap();
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let api_key = generator.generate(Environment::production()).unwrap();
     /// let key_str: &str = api_key.key().expose_secret();
     /// ```
@@ -161,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_full_lifecycle() {
-        let generator = ApiKeyManager::init_default_config("sk").unwrap();
+        let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
         let api_key = generator.generate(Environment::production()).unwrap();
 
         let key_str = api_key.key();
@@ -170,17 +254,17 @@ mod tests {
         assert!(key_str.expose_secret().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
-        assert!(generator.verify(key_str, hash_str).unwrap());
+        assert_eq!(generator.verify(key_str, hash_str).unwrap(), KeyStatus::Valid);
         let wrong_key = SecureString::from("wrong_key".to_string());
-        assert!(!generator.verify(&wrong_key, hash_str).unwrap());
+        assert_eq!(generator.verify(&wrong_key, hash_str).unwrap(), KeyStatus::Invalid);
     }
 
     #[test]
     fn test_different_presets() {
-        let balanced_gen = ApiKeyManager::init_default_config("pk").unwrap();
+        let balanced_gen = ApiKeyManagerV0::init_default_config("pk").unwrap();
         let balanced = balanced_gen.generate(Environment::test()).unwrap();
 
-        let high_sec_gen = ApiKeyManager::init_high_security_config("sk").unwrap();
+        let high_sec_gen = ApiKeyManagerV0::init_high_security_config("sk").unwrap();
         let high_sec = high_sec_gen.generate(Environment::Production).unwrap();
 
         assert!(!balanced.key().is_empty());
@@ -191,7 +275,7 @@ mod tests {
     fn test_custom_config() {
         let config = KeyConfig::new().with_entropy(32).unwrap();
 
-        let generator = ApiKeyManager::init("custom", config, HashConfig::default()).unwrap();
+        let generator = ApiKeyManagerV0::init("custom", config, HashConfig::default()).unwrap();
         let key = generator.generate(Environment::production()).unwrap();
         assert!(generator.verify_checksum(key.key()).unwrap());
     }

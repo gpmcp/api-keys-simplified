@@ -1,10 +1,10 @@
-use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 #[test]
 fn test_custom_entropy() {
     let config = KeyConfig::new().with_entropy(16).unwrap();
-    let generator = ApiKeyManager::init("sk", config, HashConfig::default()).unwrap();
+    let generator = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::test()).unwrap();
 
     assert!(key.key().len() > 10);
@@ -13,7 +13,7 @@ fn test_custom_entropy() {
 #[test]
 fn test_without_checksum() {
     let config = KeyConfig::default().disable_checksum();
-    let generator = ApiKeyManager::init("pk", config, HashConfig::default()).unwrap();
+    let generator = ApiKeyManagerV0::init("pk", config, HashConfig::default()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
 
     // Environment "live" means production, Base64URL can contain underscores and hyphens
@@ -28,19 +28,19 @@ fn test_without_checksum() {
 
 #[test]
 fn test_high_security_preset() {
-    let generator = ApiKeyManager::init_high_security_config("sk").unwrap();
+    let generator = ApiKeyManagerV0::init_high_security_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
 
     assert!(key.key().len() > 50); // Higher entropy = longer key
-    assert!(generator.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
 fn test_balanced_preset() {
-    let balanced_gen = ApiKeyManager::init_default_config("sk").unwrap();
+    let balanced_gen = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key = balanced_gen.generate(Environment::production()).unwrap();
 
-    let high_gen = ApiKeyManager::init_high_security_config("sk").unwrap();
+    let high_gen = ApiKeyManagerV0::init_high_security_config("sk").unwrap();
     let high = high_gen.generate(Environment::production()).unwrap();
 
     assert!(key.key().len() < high.key().len());
@@ -51,23 +51,23 @@ fn test_custom_hash_config() {
     let hash_config = HashConfig::custom(8192, 1, 1).unwrap();
 
     let config = KeyConfig::default();
-    let generator = ApiKeyManager::init("text", config, hash_config).unwrap();
+    let generator = ApiKeyManagerV0::init("text", config, hash_config).unwrap();
     let key = generator.generate(Environment::dev()).unwrap();
 
-    assert!(generator.verify(key.key(), key.hash()).unwrap());
+    assert_eq!(generator.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
 }
 
 #[test]
 fn test_entropy_boundaries() {
     // Minimum entropy
     let config_min = KeyConfig::new().with_entropy(16).unwrap();
-    let gen_min = ApiKeyManager::init("min", config_min, HashConfig::default()).unwrap();
+    let gen_min = ApiKeyManagerV0::init("min", config_min, HashConfig::default()).unwrap();
     let key_min = gen_min.generate(Environment::test()).unwrap();
     assert!(!key_min.key().is_empty());
 
     // Maximum entropy
     let config_max = KeyConfig::new().with_entropy(64).unwrap();
-    let gen_max = ApiKeyManager::init("max", config_max, HashConfig::default()).unwrap();
+    let gen_max = ApiKeyManagerV0::init("max", config_max, HashConfig::default()).unwrap();
     let key_max = gen_max.generate(Environment::test()).unwrap();
     assert!(key_max.key().len() > key_min.key().len());
 }
