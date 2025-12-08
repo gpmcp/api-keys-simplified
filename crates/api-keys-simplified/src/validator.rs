@@ -22,8 +22,6 @@ pub enum KeyStatus {
     Valid,
     /// Key is invalid (wrong key or hash mismatch)
     Invalid,
-    /// Key has expired based on embedded expiration
-    Expired,
 }
 
 impl KeyValidator {
@@ -56,7 +54,7 @@ impl KeyValidator {
             if chrono::Utc::now().timestamp() <= expiry {
                 Ok(KeyStatus::Valid)
             } else {
-                Ok(KeyStatus::Expired)
+                Ok(KeyStatus::Invalid)
             }
         } else {
             Ok(KeyStatus::Valid)
@@ -93,18 +91,21 @@ impl KeyValidator {
         };
         let result = Argon2::default()
             .verify_password(provided_key.as_bytes(), &parsed_hash)
-            // Not sure if we should throw an error..
-            // For now, we'll just check if verification succeeded.
             .is_ok();
 
-        if !result {
-            return Ok(KeyStatus::Invalid);
-        }
+        let argon_result = if result {
+            KeyStatus::Valid
+        } else {
+            KeyStatus::Invalid
+        };
 
-        // We don't need to put dummy load beyond this point
-        // since we have already processed the hash comparison.
-        match self.verify_expiry(token_parts) {
-            Ok(KeyStatus::Expired) => Ok(KeyStatus::Expired),
+        // SECURITY: Force evaluation of expiry check BEFORE the match to ensure
+        // constant-time execution. This prevents the compiler from short-circuiting
+        // the expiry check when argon_result is Invalid, which would create a timing oracle.
+        let expiry_result = self.verify_expiry(token_parts)?;
+
+        match (argon_result, expiry_result) {
+            (KeyStatus::Invalid, _) | (_, KeyStatus::Invalid) => Ok(KeyStatus::Invalid),
             _ => Ok(KeyStatus::Valid),
         }
     }

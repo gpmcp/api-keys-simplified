@@ -54,12 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_request(request)
         }
         KeyStatus::Invalid => {
-            // Key is invalid or revoked - rejected in ~20μs (not ~300ms)
+            // Key is invalid, expired, or revoked
             Err("Invalid API key")
-        }
-        KeyStatus::Expired => {
-            // Key has expired
-            Err("API key expired")
         }
     }
 }
@@ -206,7 +202,7 @@ fn verify_with_revocation(manager: &ApiKeyManager, key: &SecureString, user_id: 
     // Then verify key status
     match manager.verify(key, &stored_hash)? {
         KeyStatus::Valid => Ok(true),
-        KeyStatus::Invalid | KeyStatus::Expired => Ok(false),
+        KeyStatus::Invalid => Ok(false),
     }
 }
 

@@ -25,7 +25,7 @@ derive-getters.workspace = true
 secrecy.workspace = true
 regex.workspace = true
 chrono.workspace = true
-nom = "8.0.0"
+nom.workspace = true
 
 [features]
 default = []
