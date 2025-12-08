@@ -29,7 +29,7 @@ fn test_past_expiry_is_expired() {
 
     assert_eq!(
         manager.verify(key.key(), key.hash()).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -46,7 +46,7 @@ fn test_expiry_at_current_time() {
     // Should be Valid since verification uses: now <= expiry
     let status = manager.verify(key.key(), key.hash()).unwrap();
     assert!(
-        status == KeyStatus::Valid || status == KeyStatus::Expired,
+        status == KeyStatus::Valid || status == KeyStatus::Invalid,
         "Status at boundary should be Valid or Expired depending on timing"
     );
 }
@@ -105,7 +105,7 @@ fn test_short_expiry() {
     // Should now be expired
     assert_eq!(
         manager.verify(key.key(), key.hash()).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -153,7 +153,7 @@ fn test_expiry_across_environments() {
         manager
             .verify(test_expired.key(), test_expired.hash())
             .unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
     assert_eq!(
         manager
@@ -165,7 +165,7 @@ fn test_expiry_across_environments() {
         manager
             .verify(live_expired.key(), live_expired.hash())
             .unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -185,7 +185,7 @@ fn test_expiry_embedded_in_key() {
     // Verify using the stored hash - expiry should still work
     assert_eq!(
         manager.verify(key.key(), &hash_str).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -212,7 +212,7 @@ fn test_expiry_without_checksum() {
         manager
             .verify(expired_key.key(), expired_key.hash())
             .unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
     assert_eq!(
         manager.verify(valid_key.key(), valid_key.hash()).unwrap(),
@@ -269,7 +269,7 @@ fn test_expired_with_valid_checksum() {
     // Key has valid checksum and correct hash, but is expired
     assert_eq!(
         manager.verify(key.key(), key.hash()).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -294,7 +294,7 @@ fn test_expiry_timestamp_round_trip() {
         // Verify doesn't panic and returns a valid status
         let status = manager.verify(key.key(), key.hash()).unwrap();
         assert!(
-            matches!(status, KeyStatus::Valid | KeyStatus::Expired),
+            matches!(status, KeyStatus::Valid | KeyStatus::Invalid),
             "Expected Valid or Expired, got {:?}",
             status
         );
@@ -324,7 +324,7 @@ fn test_expiry_with_high_security() {
         manager
             .verify(expired_key.key(), expired_key.hash())
             .unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -381,7 +381,7 @@ fn test_trial_key_lifecycle() {
         manager
             .verify(expired_key.key(), expired_key.hash())
             .unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }
 
@@ -402,10 +402,10 @@ fn test_expiry_with_custom_prefix() {
 
     assert_eq!(
         manager1.verify(key1.key(), key1.hash()).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
     assert_eq!(
         manager2.verify(key2.key(), key2.hash()).unwrap(),
-        KeyStatus::Expired
+        KeyStatus::Invalid
     );
 }

@@ -37,7 +37,6 @@ let status = manager.verify(provided_key, stored_hash)?;
 match status {
     KeyStatus::Valid => { /* grant access */ },
     KeyStatus::Invalid => { /* reject - wrong key */ },
-    KeyStatus::Expired => { /* reject - key expired */ },
 }
 ```
 

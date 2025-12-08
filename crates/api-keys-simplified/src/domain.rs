@@ -138,19 +138,18 @@ impl ApiKeyManagerV0 {
 
     /// Verifies an API key against a stored hash.
     ///
-    /// Returns `KeyStatus` indicating whether the key is valid, invalid, or expired.
+    /// Returns `KeyStatus` indicating whether the key is valid or invalid.
     ///
     /// # Security Flow
     ///
     /// 1. **Checksum validation** (if enabled): Rejects invalid keys in ~20μs
     /// 2. **Argon2 verification**: Verifies hash for valid checksums (~300ms)
-    /// 3. **Expiry check**: Returns `Expired` if the key's timestamp has passed
+    /// 3. **Expiry check**: Returns `Invalid` if the key's timestamp has passed
     ///
     /// # Returns
     ///
     /// - `KeyStatus::Valid` - Key is valid and not expired
-    /// - `KeyStatus::Invalid` - Key is invalid (wrong key, hash mismatch, or checksum failed)
-    /// - `KeyStatus::Expired` - Key is valid but has expired
+    /// - `KeyStatus::Invalid` - Key is invalid (wrong key, hash mismatch, checksum failed, or expired)
     ///
     /// # Note on Revocation
     ///
@@ -167,8 +166,7 @@ impl ApiKeyManagerV0 {
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// match manager.verify(key.key(), key.hash())? {
     ///     KeyStatus::Valid => { /* grant access */ },
-    ///     KeyStatus::Invalid => { /* reject - wrong key */ },
-    ///     KeyStatus::Expired => { /* reject - key expired */ },
+    ///     KeyStatus::Invalid => { /* reject - wrong key or expired */ },
     /// }
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
