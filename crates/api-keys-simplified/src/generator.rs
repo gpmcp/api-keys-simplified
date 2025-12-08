@@ -105,14 +105,15 @@ impl KeyGenerator {
         key.append(&mut encoded);
 
         let exp_bytes = exp_string.as_ref().map(|v| v.as_bytes());
+        let checksum = self.compute_checksum(&key, exp_bytes);
         // Compute checksum on the key BEFORE appending the separator and checksum
-        if let Some(checksum) = self.compute_checksum(&key, exp_bytes) {
-            // Compute checksum on the key BEFORE appending the separator and checksum
-            if let Some(b) = exp_bytes {
-                key.push(CHECKSUM_SEPARATOR);
-                key.extend_from_slice(b);
-            }
+        if let Some(b) = exp_bytes {
+            key.push(CHECKSUM_SEPARATOR);
+            key.extend_from_slice(b);
+        }
 
+        // Compute checksum on the key BEFORE appending the separator and checksum
+        if let Some(checksum) = checksum {
             key.push(CHECKSUM_SEPARATOR);
             key.append(&mut checksum.into_bytes());
         }
