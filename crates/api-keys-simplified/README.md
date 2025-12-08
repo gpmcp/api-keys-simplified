@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     database::save_user_key_hash(user_id, api_key.hash())?;
 
     // 5. Later: verify an incoming key (checksum validated first!)
-    let provided_key = request.headers().get("X-API-Key")?;
+    let provided_key = request.headers().get("Authorization")?.replace("Bearer ", "");
     let stored_hash = database::get_user_key_hash(user_id)?;
 
     match manager.verify(&provided_key, &stored_hash)? {
@@ -167,7 +167,7 @@ db.save(key.hash());  // Store hash only
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
-    .header("X-API-Key", key.key().expose_secret())
+    .header("Authorization", format!("Bearer {}",key.key().expose_secret()))
     .send()?;
 
 // ✅ Implement key rotation
