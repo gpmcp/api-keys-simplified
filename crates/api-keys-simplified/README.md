@@ -287,6 +287,7 @@ Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 
 - [x] Key expiration support
 - [x] Key versioning
+- [ ] Key rotation
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations
 - [ ] Write e2e tests to ensure memory zeroization
