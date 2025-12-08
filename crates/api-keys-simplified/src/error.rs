@@ -39,6 +39,9 @@ pub enum ConfigError {
     #[error("Prefix must not contain {0} substring")]
     InvalidPrefixSubstring(String),
 
+    #[error("Prefix cannot look like a version number (e.g., 'v1', 'v2', 'v42')")]
+    InvalidPrefixVersionLike,
+
     #[error("String must not be empty")]
     EmptyString,
 

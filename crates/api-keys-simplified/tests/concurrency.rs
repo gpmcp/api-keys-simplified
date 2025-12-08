@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManager, Environment, HashConfig, KeyConfig, SecureString};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
+};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -7,7 +9,7 @@ use std::thread;
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_generation_and_uniqueness() {
     // Tests: RNG thread safety, key uniqueness, synchronized starts
-    let generator = Arc::new(ApiKeyManager::init_default_config("sk").unwrap());
+    let generator = Arc::new(ApiKeyManagerV0::init_default_config("sk").unwrap());
     let barrier = Arc::new(Barrier::new(10));
     let mut handles = vec![];
 
@@ -54,7 +56,7 @@ fn test_concurrent_generation_and_uniqueness() {
 fn test_concurrent_verification_and_checksum() {
     // Tests: Argon2 thread safety, checksum verification (enabled by default), Arc-wrapped SecureString
     let config = KeyConfig::default();
-    let generator = Arc::new(ApiKeyManager::init("pk", config, HashConfig::default()).unwrap());
+    let generator = Arc::new(ApiKeyManagerV0::init("pk", config, HashConfig::default()).unwrap());
 
     // Generate test data
     let mut keys_and_hashes = Vec::new();
@@ -79,7 +81,7 @@ fn test_concurrent_verification_and_checksum() {
             for (key_str, hash_str) in data.iter() {
                 let key = SecureString::from(key_str.clone());
                 // Test Argon2 verification
-                if gen.verify(&key, hash_str).unwrap() {
+                if gen.verify(&key, hash_str).unwrap() == KeyStatus::Valid {
                     hash_ok += 1;
                 }
                 // Test checksum verification
@@ -102,9 +104,9 @@ fn test_concurrent_verification_and_checksum() {
 #[test]
 fn test_clone_safety_and_config_isolation() {
     // Tests: Clone safety, different configs don't interfere, cross-verification
-    let gen1 = ApiKeyManager::init("g1", KeyConfig::balanced(), HashConfig::balanced()).unwrap();
+    let gen1 = ApiKeyManagerV0::init("g1", KeyConfig::balanced(), HashConfig::balanced()).unwrap();
     let gen2_cloned = gen1.clone();
-    let gen3 = ApiKeyManager::init(
+    let gen3 = ApiKeyManagerV0::init(
         "g3",
         KeyConfig::high_security(),
         HashConfig::high_security(),
@@ -144,13 +146,28 @@ fn test_clone_safety_and_config_isolation() {
     assert_ne!(key1.key().expose_secret(), key3.key().expose_secret());
 
     // Verify with own generators
-    assert!(gen1.verify(key1.key(), key1.hash()).unwrap());
-    assert!(gen2.verify(key2.key(), key2.hash()).unwrap());
-    assert!(gen3.verify(key3.key(), key3.hash()).unwrap());
+    assert_eq!(
+        gen1.verify(key1.key(), key1.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen2.verify(key2.key(), key2.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen3.verify(key3.key(), key3.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Cross-verify clones (same config)
-    assert!(gen1.verify(key2.key(), key2.hash()).unwrap());
-    assert!(gen2.verify(key1.key(), key1.hash()).unwrap());
+    assert_eq!(
+        gen1.verify(key2.key(), key2.hash()).unwrap(),
+        KeyStatus::Valid
+    );
+    assert_eq!(
+        gen2.verify(key1.key(), key1.hash()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Different prefixes don't cross-verify
     assert!(key1.key().expose_secret().starts_with("g1-"));
@@ -165,7 +182,7 @@ fn test_clone_safety_and_config_isolation() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_high_contention_mixed_operations() {
     // Tests: High load, mixed gen/verify operations, high-security config under stress
-    let generator = Arc::new(ApiKeyManager::init_high_security_config("stress").unwrap());
+    let generator = Arc::new(ApiKeyManagerV0::init_high_security_config("stress").unwrap());
 
     let mut handles = vec![];
     for thread_id in 0..20 {
@@ -179,7 +196,7 @@ fn test_high_contention_mixed_operations() {
                 } else {
                     // Generate and verify
                     let key = gen.generate(Environment::test()).unwrap();
-                    assert!(gen.verify(key.key(), key.hash()).unwrap());
+                    assert_eq!(gen.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
                 }
             }
         }));

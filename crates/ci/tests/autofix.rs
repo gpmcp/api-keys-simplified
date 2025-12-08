@@ -23,7 +23,10 @@ fn main() {
                         ),
                 ),
         )
-        .add_step(Step::new("Setup protoc").uses("arduino", "setup-protoc", "v3"))
+        .add_step(
+            Step::new("Install protoc")
+                .run("sudo apt-get update && sudo apt-get install -y protobuf-compiler"),
+        )
         .add_step(Step::new("Cargo Fmt").run("cargo +nightly fmt --all"))
         .add_step(Step::new("Cargo Clippy").run(
             "cargo +nightly clippy --fix --allow-dirty --all-features --workspace -- -D warnings",

@@ -14,6 +14,8 @@ A secure Rust library for generating and validating API keys with built-in secur
 - **BLAKE3 checksums** (2900x faster DoS protection)
 - **Constant-time verification** (prevents timing attacks)
 - **Automatic memory zeroing** (protects sensitive data)
+- **Key expiration** (time-based access control)
+- **Key revocation** (instant access denial via stored hash)
 
 ## Quick Example
 
@@ -31,8 +33,10 @@ println!("API Key: {}", api_key.key().expose_secret());
 database.save(api_key.hash());
 
 // Later: verify incoming key (checksum checked first)
-if manager.verify(provided_key, stored_hash)? {
-    // Key is valid
+let status = manager.verify(provided_key, stored_hash)?;
+match status {
+    KeyStatus::Valid => { /* grant access */ },
+    KeyStatus::Invalid => { /* reject - wrong key */ },
 }
 ```
 
