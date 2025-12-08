@@ -34,7 +34,7 @@ use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize with checksum (out of the box DoS protection)
     let manager = ApiKeyManager::init_default_config("gpmcp_sk")?;
-    
+
     // 2. Generate a new API key
     let api_key = manager.generate(Environment::production())?;
 
@@ -82,16 +82,19 @@ prefix[-version]-environment-random_data[.expiry][.checksum]
 - Full format: `api-v2-live-Rt7jK3pV8wNmQ2uD4fG6hLk8nPqS2uW5.AAAAAGldxGE.9f8e7d6c5b4a3210`
 
 **Checksum provides:**
+
 - 2900x faster rejection of invalid keys
 - DoS protection against malformed requests
 - Integrity verification before expensive Argon2
 
 **Expiration provides:**
+
 - Time-based access control (trial keys, temporary access)
 - Stateless expiry (no database cleanup needed)
 - Automatic rejection after timestamp
 
 **Versioning provides:**
+
 - Gradual migration between key formats
 - Clear identification of key format version
 - Backward compatibility (version 0 = unversioned)
@@ -138,6 +141,7 @@ Common API key security mistakes:
 - **Resource Limits:** Prevents hash complexity attacks
 
 **Performance Comparison (10 invalid keys):**
+
 - ✅ With checksum: 0ms (fast rejection)
 - ❌ Without checksum: 2907ms (all Argon2)
 
@@ -193,12 +197,12 @@ fn revoke_key(user_id: u64, key_hash: &str) -> Result<()> {
 // ✅ Check revocation status during verification
 fn verify_with_revocation(manager: &ApiKeyManager, key: &SecureString, user_id: u64) -> Result<bool> {
     let stored_hash = db.get_user_key_hash(user_id)?;
-    
+
     // Check if key is revoked first (fast database check)
     if db.is_revoked(user_id, &stored_hash)? {
         return Ok(false);
     }
-    
+
     // Then verify key status
     match manager.verify(key, &stored_hash)? {
         KeyStatus::Valid => Ok(true),
@@ -216,7 +220,7 @@ manager.verify(provided_key, stored_hash)?;
 ## Performance
 
 | Preset             | Memory | Time   | Verification |
-|--------------------|--------|--------|--------------|
+| ------------------ | ------ | ------ | ------------ |
 | Balanced (default) | 19 MB  | 2 iter | ~50ms        |
 | High Security      | 64 MB  | 3 iter | ~150ms       |
 
@@ -248,12 +252,12 @@ Err(e) => eprintln ! ("Error: {}", e),
 ## Comparison
 
 | Feature                | api-keys-simplified | uuid | nanoid   |
-|------------------------|---------------------|------|----------|
-| Cryptographic security | ✅ Argon2id          | ❌    | ⚠️ Basic |
-| Hashed storage         | ✅ Built-in          | ❌    | ❌        |
-| Constant-time verify   | ✅ Yes               | ❌    | ❌        |
-| Memory protection      | ✅ Auto-zeroing      | ❌    | ❌        |
-| Structured format      | ✅ prefix.env.data   | ❌    | ❌        |
+| ---------------------- | ------------------- | ---- | -------- |
+| Cryptographic security | ✅ Argon2id         | ❌   | ⚠️ Basic |
+| Hashed storage         | ✅ Built-in         | ❌   | ❌       |
+| Constant-time verify   | ✅ Yes              | ❌   | ❌       |
+| Memory protection      | ✅ Auto-zeroing     | ❌   | ❌       |
+| Structured format      | ✅ prefix.env.data  | ❌   | ❌       |
 
 ## License
 
@@ -277,7 +281,6 @@ All cryptographic implementations use well-audited crates:
 ## Reporting Vulnerabilities
 
 Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
-
 
 ## Progress
 
