@@ -157,7 +157,8 @@ impl KeyGenerator {
         }
 
         // Use parse_token to extract checksum and key parts
-        let parts = match parse_token(key_bytes) {
+        let has_checksum = *self.config.checksum_length() > 0;
+        let parts = match parse_token(key_bytes, has_checksum) {
             Ok((_, parts)) => parts,
             Err(_) => {
                 // If parsing fails, perform dummy work for timing consistency

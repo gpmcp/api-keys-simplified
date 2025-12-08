@@ -12,6 +12,7 @@ use password_hash::PasswordHashString;
 #[derive(Clone)]
 pub struct KeyValidator {
     hash: PasswordHashString,
+    has_checksum: bool,
 }
 
 /// Represents the status of an API key after verification
@@ -31,12 +32,12 @@ impl KeyValidator {
     /// Maximum allowed length for password hashes (prevents DoS via malformed hashes)
     const MAX_HASH_LENGTH: usize = 512;
 
-    pub fn new(hash_config: &HashConfig) -> std::result::Result<KeyValidator, ConfigError> {
+    pub fn new(hash_config: &HashConfig, has_checksum: bool) -> std::result::Result<KeyValidator, ConfigError> {
         let dummy_hash = format!("$argon2id$v=19$m={},t={},p={}$0bJKH8iokgID0PWXnrsXvw$oef42xfOKBQMkCpvoQTeVHLhsYf+EQWMc2u4Ebn1MUo", hash_config.memory_cost(), hash_config.time_cost(), hash_config.parallelism());
         let hash =
             PasswordHashString::new(&dummy_hash).map_err(|_| ConfigError::InvalidArgon2Hash)?;
 
-        Ok(KeyValidator { hash })
+        Ok(KeyValidator { hash, has_checksum })
     }
 
     fn verify_expiry(&self, parts: Parts) -> Result<KeyStatus> {
@@ -70,7 +71,7 @@ impl KeyValidator {
             return Err(Error::InvalidFormat);
         }
 
-        let token_parts = match parse_token(provided_key.as_bytes()) {
+        let token_parts = match parse_token(provided_key.as_bytes(), self.has_checksum) {
             Ok(token_parts) => token_parts.1,
             Err(_) => {
                 self.dummy_load();
@@ -110,7 +111,7 @@ impl KeyValidator {
         // and "valid hash but wrong password" errors
         let dummy_password =
             b"text-v1-test-okphUY-aqllb-qHoZDC9mVlm5sY9lvmm.AAAAAGk2Mvg.a54368d6331bf42dc18c";
-        parse_token(dummy_password).ok();
+        parse_token(dummy_password, self.has_checksum).ok();
 
         Argon2::default()
             .verify_password(dummy_password, &self.hash.password_hash())
@@ -130,7 +131,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
         assert_eq!(
             validator
                 .verify(key.expose_secret(), hash.as_ref())
@@ -145,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_invalid_hash_format() {
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
         let result = validator.verify("any_key", "invalid_hash");
         // After timing oracle fix: invalid hash format returns Ok(Invalid) instead of Err
         // to prevent timing-based user enumeration attacks
@@ -160,7 +161,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
         let result = validator.verify(&oversized_key, hash.as_ref());
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -170,7 +171,7 @@ mod tests {
     fn test_oversized_hash_rejection() {
         let oversized_hash = "a".repeat(513); // Exceeds MAX_HASH_LENGTH
 
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
         let result = validator.verify("valid_key", &oversized_hash);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -182,7 +183,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
@@ -202,7 +203,7 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let valid_hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default()).unwrap();
+        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
 
         let result1 = validator.verify("wrong_key", valid_hash.as_ref());
         assert!(result1.is_ok());

@@ -286,7 +286,6 @@ Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 ## Progress
 
 - [x] Key expiration support
-- [x] Key revocation support (via database hash marking)
 - [x] Key versioning
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations

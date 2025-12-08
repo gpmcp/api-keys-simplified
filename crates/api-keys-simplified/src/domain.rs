@@ -57,7 +57,7 @@ impl ApiKeyManagerV0 {
         let include_checksum = *config.checksum_length() != 0;
         let prefix = KeyPrefix::new(prefix)?;
         let generator = KeyGenerator::new(prefix, config);
-        let validator = KeyValidator::new(&hash_config)?;
+        let validator = KeyValidator::new(&hash_config, include_checksum)?;
         let hasher = KeyHasher::new(hash_config);
 
         Ok(Self {
