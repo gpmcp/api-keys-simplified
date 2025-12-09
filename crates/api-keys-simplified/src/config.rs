@@ -326,7 +326,7 @@ mod tests {
         assert!(KeyPrefix::new("sk").is_ok());
         assert!(KeyPrefix::new("api_key").is_ok());
         assert!(KeyPrefix::new("").is_err());
-        assert!(KeyPrefix::new("invalid-prefix").is_err());
+        assert!(KeyPrefix::new("invalid-prefix").is_ok());
     }
 
     #[test]

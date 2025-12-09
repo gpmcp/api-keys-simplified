@@ -87,8 +87,9 @@ fn test_expired_key_wrong_hash() {
 /// Test very short expiry (seconds)
 #[test]
 fn test_short_expiry() {
+    const EXPIRY: i64 = 3;
     let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
-    let expiry = Utc::now() + Duration::seconds(3);
+    let expiry = Utc::now() + Duration::seconds(EXPIRY);
     let key = manager
         .generate_with_expiry(Environment::production(), expiry)
         .unwrap();
@@ -100,7 +101,7 @@ fn test_short_expiry() {
     );
 
     // Wait for expiry
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    std::thread::sleep(std::time::Duration::from_secs(EXPIRY as u64 + 1));
 
     // Should now be expired
     assert_eq!(
