@@ -9,8 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0](https://github.com/gpmcp/api-keys-simplified/compare/v0.1.1...v0.2.0) - 2025-12-09
 
+### Added
+
+- add ApiKeyGenerator wrapper
+- add comprehensive key versioning
+- ability to add expiry for keys
+- allow `-` in prefix
+- 
+
 ### Fixed
 
+- key prefix validation tests
+- prevent timing oracle in expiry verification
+- oracle vulnr while verification
 - key prefix validation tests
 
 ## [0.1.1](https://github.com/gpmcp/api-keys-simplified/compare/v0.1.0...v0.1.1) - 2025-12-06
