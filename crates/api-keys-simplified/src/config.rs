@@ -121,7 +121,7 @@ impl KeyPrefix {
         }
         if !prefix
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         {
             return Err(ConfigError::InvalidPrefixCharacters);
         }
