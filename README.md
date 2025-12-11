@@ -74,3 +74,6 @@ Report vulnerabilities to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 
 Contributions welcome!
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=gpmcp/api-keys-simplified&type=date&legend=top-left)](https://www.star-history.com/#gpmcp/api-keys-simplified&type=date&legend=top-left)
