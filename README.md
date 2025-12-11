@@ -67,3 +67,17 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 ## Security
 
 Report vulnerabilities to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
+
+## Progress
+
+- [x] Key expiration support
+- [x] Key versioning
+- [ ] Key rotation
+- [x] Fix timing attack in dummy_load
+- [x] Zero all intermediate string allocations
+- [ ] Switch to ZII or a hybrid (ZII +  RAII) approach for easier memory management.
+- [ ] Write e2e tests to ensure memory zeroization
+- [ ] Write e2e tests to verify prevention of side-channel attacks
+
+Contributions welcome!
+
