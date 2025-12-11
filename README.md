@@ -44,13 +44,6 @@ match status {
 
 For complete documentation, see the [library README](crates/api-keys-simplified/README.md) or visit [docs.rs](https://docs.rs/api-keys-simplified).
 
-## Installation
-
-```toml
-[dependencies]
-api-keys-simplified = "0.1"
-```
-
 ## Project Structure
 
 ```

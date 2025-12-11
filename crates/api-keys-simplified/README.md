@@ -19,21 +19,14 @@ A secure, Rust library for generating and validating API keys with built-in secu
 
 ## Quick Start
 
-### Installation
-
-```toml
-[dependencies]
-api-keys-simplified = "0.1"
-```
-
 ### Basic Usage
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize with checksum (out of the box DoS protection)
-    let manager = ApiKeyManager::init_default_config("gpmcp_sk")?;
+    let manager = ApiKeyManagerV0::init_default_config("gpmcp_sk")?;
 
     // 2. Generate a new API key
     let api_key = manager.generate(Environment::production())?;
@@ -45,7 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     database::save_user_key_hash(user_id, api_key.hash())?;
 
     // 5. Later: verify an incoming key (checksum validated first!)
-    let provided_key = request.headers().get("Authorization")?.replace("Bearer ", "");
+    let provided_key_str = request.headers().get("Authorization")?.replace("Bearer ", "");
+    let provided_key = SecureString::from(provided_key_str);
     let stored_hash = database::get_user_key_hash(user_id)?;
 
     match manager.verify(&provided_key, &stored_hash)? {
@@ -156,10 +150,14 @@ Common API key security mistakes:
 ### Best Practices
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig, KeyStatus};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, ExposeSecret, 
+    KeyStatus, SecureString, ApiKey, Hash
+};
+use chrono::{Duration, Utc};
 
 // ✅ Checksums enabled by default (DoS protection - use .disable_checksum() to turn off)
-let manager = ApiKeyManager::init_default_config("myapp_sk")?;
+let manager = ApiKeyManagerV0::init_default_config("myapp_sk")?;
 
 // ✅ Never log keys (auto-redacted)
 let key = manager.generate(Environment::production())?;
@@ -171,11 +169,11 @@ db.save(key.hash());  // Store hash only
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
-    .header("Authorization", format!("Bearer {}",key.key().expose_secret()))
+    .header("Authorization", format!("Bearer {}", key.key().expose_secret()))
     .send()?;
 
 // ✅ Implement key rotation
-fn rotate_key(manager: &ApiKeyManager, user_id: u64) -> Result<ApiKey> {
+fn rotate_key(manager: &ApiKeyManagerV0, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
     let new_key = manager.generate(Environment::production())?;
     db.revoke_old_keys(user_id)?;
     db.save_new_hash(user_id, new_key.hash())?;
@@ -188,14 +186,18 @@ let trial_key = manager.generate_with_expiry(Environment::production(), trial_ex
 db.save(user_id, trial_key.hash())?;
 
 // ✅ Implement key revocation for compromised keys
-fn revoke_key(user_id: u64, key_hash: &str) -> Result<()> {
+fn revoke_key(user_id: u64, key_hash: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Mark hash as revoked in database
     db.mark_revoked(user_id, key_hash)?;
     Ok(())
 }
 
 // ✅ Check revocation status during verification
-fn verify_with_revocation(manager: &ApiKeyManager, key: &SecureString, user_id: u64) -> Result<bool> {
+fn verify_with_revocation(
+    manager: &ApiKeyManagerV0, 
+    key: &SecureString, 
+    user_id: u64
+) -> Result<bool, Box<dyn std::error::Error>> {
     let stored_hash = db.get_user_key_hash(user_id)?;
 
     // Check if key is revoked first (fast database check)
@@ -214,7 +216,9 @@ fn verify_with_revocation(manager: &ApiKeyManager, key: &SecureString, user_id: 
 if rate_limiter.check(ip_address).is_err() {
     return Err("Too many failed attempts");
 }
-manager.verify(provided_key, stored_hash)?;
+// Convert incoming string to SecureString
+let incoming_key = SecureString::from(request_key_string.to_string());
+manager.verify(&incoming_key, &stored_hash)?;
 ```
 
 ## Performance
@@ -236,14 +240,20 @@ cargo test --features expensive_tests  # Include timing analysis
 ## Error Handling
 
 ```rust
-use api_keys_simplified::{ApiKey, Error};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, Error, ExposeSecret};
 
-match ApiKey::generate_default("", Environment::production()) {
-Ok(key) => println ! ("Success: {}", key.key().expose_secret()),
-Err(Error::InvalidConfig(msg)) => eprintln ! ("Config error: {}", msg),
-Err(Error::InvalidFormat) => eprintln ! ("Invalid key format"),
-Err(Error::HashingFailed(msg)) => eprintln ! ("Hashing error: {}", msg),
-Err(e) => eprintln ! ("Error: {}", e),
+match ApiKeyManagerV0::init_default_config("sk") {
+    Ok(manager) => {
+        match manager.generate(Environment::production()) {
+            Ok(key) => println!("Success: {}", key.key().expose_secret()),
+            Err(Error::OperationFailed(op_err)) => {
+                // Operation errors contain details (use {:?} in logs for debugging)
+                eprintln!("Operation error: {}", op_err);
+            }
+            Err(e) => eprintln!("Generation error: {}", e),
+        }
+    }
+    Err(e) => eprintln!("Init error: {}", e),
 }
 ```
 
