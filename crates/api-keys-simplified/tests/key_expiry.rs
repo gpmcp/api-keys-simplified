@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, SecureString};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, SecureString,
+};
 use chrono::{Duration, Utc};
 
 /// Test that a key with future expiry is valid
