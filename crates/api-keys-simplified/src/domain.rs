@@ -78,7 +78,12 @@ impl ApiKeyManagerV0 {
     }
 
     pub fn init_default_config(prefix: impl Into<String>) -> std::result::Result<Self, InitError> {
-        Self::init(prefix, KeyConfig::default(), HashConfig::default(), std::time::Duration::ZERO)
+        Self::init(
+            prefix,
+            KeyConfig::default(),
+            HashConfig::default(),
+            std::time::Duration::from_secs(10),
+        )
     }
     pub fn init_high_security_config(
         prefix: impl Into<String>,
@@ -87,7 +92,7 @@ impl ApiKeyManagerV0 {
             prefix,
             KeyConfig::high_security(),
             HashConfig::high_security(),
-            std::time::Duration::ZERO,
+            std::time::Duration::from_secs(10),
         )
     }
 
@@ -191,17 +196,16 @@ impl ApiKeyManagerV0 {
     /// }
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn verify(
-        &self,
-        key: &SecureString,
-        stored_hash: impl AsRef<str>,
-    ) -> Result<KeyStatus> {
+    pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<KeyStatus> {
         if self.include_checksum && !self.verify_checksum(key)? {
             return Ok(KeyStatus::Invalid);
         }
 
-        self.validator
-            .verify(key.expose_secret(), stored_hash.as_ref(), self.expiry_grace_period)
+        self.validator.verify(
+            key.expose_secret(),
+            stored_hash.as_ref(),
+            self.expiry_grace_period,
+        )
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
@@ -304,7 +308,13 @@ mod tests {
     fn test_custom_config() {
         let config = KeyConfig::new().with_entropy(32).unwrap();
 
-        let generator = ApiKeyManagerV0::init("custom", config, HashConfig::default(), std::time::Duration::ZERO).unwrap();
+        let generator = ApiKeyManagerV0::init(
+            "custom",
+            config,
+            HashConfig::default(),
+            std::time::Duration::ZERO,
+        )
+        .unwrap();
         let key = generator.generate(Environment::production()).unwrap();
         assert!(generator.verify_checksum(key.key()).unwrap());
     }
