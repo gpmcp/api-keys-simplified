@@ -31,16 +31,16 @@ impl KeyGenerator {
             config: config.clone(),
             dummy_key: SecureString::from(String::new()), // Temporary placeholder
         };
-        
+
         let dummy_key = dummy_generator.generate(Environment::Production, None)?;
-        
+
         Ok(Self {
             prefix,
             config,
             dummy_key,
         })
     }
-    
+
     /// Returns a reference to the dummy key for timing attack protection.
     /// This is used by KeyValidator to perform dummy work.
     pub(crate) fn dummy_key(&self) -> &SecureString {

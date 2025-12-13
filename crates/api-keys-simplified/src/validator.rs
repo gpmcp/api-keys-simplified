@@ -38,8 +38,8 @@ impl KeyValidator {
         dummy_key: SecureString,
         dummy_hash: String,
     ) -> std::result::Result<KeyValidator, ConfigError> {
-        let hash = PasswordHashString::new(&dummy_hash)
-            .map_err(|_| ConfigError::InvalidArgon2Hash)?;
+        let hash =
+            PasswordHashString::new(&dummy_hash).map_err(|_| ConfigError::InvalidArgon2Hash)?;
 
         Ok(KeyValidator {
             hash,
@@ -150,7 +150,8 @@ mod tests {
         let hash = hasher.hash(&key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         assert_eq!(
             validator
                 .verify(key.expose_secret(), hash.as_ref())
@@ -166,7 +167,8 @@ mod tests {
     #[test]
     fn test_invalid_hash_format() {
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify("any_key", "invalid_hash");
         // After timing oracle fix: invalid hash format returns Ok(Invalid) instead of Err
         // to prevent timing-based user enumeration attacks
@@ -182,7 +184,8 @@ mod tests {
         let hash = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify(&oversized_key, hash.as_ref());
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -193,7 +196,8 @@ mod tests {
         let oversized_hash = "a".repeat(513); // Exceeds MAX_HASH_LENGTH
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify("valid_key", &oversized_hash);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -206,7 +210,8 @@ mod tests {
         let hash = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
@@ -227,7 +232,8 @@ mod tests {
         let valid_hash = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
-        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+        let validator =
+            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
 
         let result1 = validator.verify("wrong_key", valid_hash.as_ref());
         assert!(result1.is_ok());
