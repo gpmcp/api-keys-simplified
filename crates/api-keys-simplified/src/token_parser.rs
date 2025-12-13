@@ -161,7 +161,8 @@ mod tests {
             HashConfig::default()
         };
 
-        let generator = ApiKeyManagerV0::init("text", config, hash_config, std::time::Duration::ZERO).unwrap();
+        let generator =
+            ApiKeyManagerV0::init("text", config, hash_config, std::time::Duration::ZERO).unwrap();
         let ts = Utc::now();
         let key = if with_expiry {
             generator

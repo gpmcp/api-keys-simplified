@@ -373,8 +373,13 @@ mod tests {
 
     #[test]
     fn test_verify_checksum_dos_protection() {
-        let generator =
-            ApiKeyManagerV0::init("sk", KeyConfig::balanced(), HashConfig::default(), std::time::Duration::ZERO).unwrap();
+        let generator = ApiKeyManagerV0::init(
+            "sk",
+            KeyConfig::balanced(),
+            HashConfig::default(),
+            std::time::Duration::ZERO,
+        )
+        .unwrap();
 
         // Test oversized key rejection
         let huge_key = SecureString::from("a".repeat(1000));

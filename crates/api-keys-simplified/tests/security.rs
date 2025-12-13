@@ -33,7 +33,13 @@ fn test_different_keys_same_hash() {
 #[test]
 fn test_checksum_validation() {
     let config = KeyConfig::default();
-    let generator = ApiKeyManagerV0::init("chk", config, HashConfig::default(), std::time::Duration::ZERO).unwrap();
+    let generator = ApiKeyManagerV0::init(
+        "chk",
+        config,
+        HashConfig::default(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
     let with_checksum = generator.generate(Environment::test()).unwrap();
     assert!(generator.verify_checksum(with_checksum.key()).unwrap());
 
@@ -75,7 +81,13 @@ fn test_collision_resistance() {
 #[test]
 fn test_key_format_consistency() {
     let config = KeyConfig::default();
-    let generator = ApiKeyManagerV0::init("format", config, HashConfig::default(), std::time::Duration::ZERO).unwrap();
+    let generator = ApiKeyManagerV0::init(
+        "format",
+        config,
+        HashConfig::default(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let key_str = key.key().expose_secret();
 

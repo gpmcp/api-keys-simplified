@@ -56,7 +56,15 @@ fn test_concurrent_generation_and_uniqueness() {
 fn test_concurrent_verification_and_checksum() {
     // Tests: Argon2 thread safety, checksum verification (enabled by default), Arc-wrapped SecureString
     let config = KeyConfig::default();
-    let generator = Arc::new(ApiKeyManagerV0::init("pk", config, HashConfig::default(), std::time::Duration::ZERO).unwrap());
+    let generator = Arc::new(
+        ApiKeyManagerV0::init(
+            "pk",
+            config,
+            HashConfig::default(),
+            std::time::Duration::ZERO,
+        )
+        .unwrap(),
+    );
 
     // Generate test data
     let mut keys_and_hashes = Vec::new();
@@ -104,7 +112,13 @@ fn test_concurrent_verification_and_checksum() {
 #[test]
 fn test_clone_safety_and_config_isolation() {
     // Tests: Clone safety, different configs don't interfere, cross-verification
-    let gen1 = ApiKeyManagerV0::init("g1", KeyConfig::balanced(), HashConfig::balanced(), std::time::Duration::ZERO).unwrap();
+    let gen1 = ApiKeyManagerV0::init(
+        "g1",
+        KeyConfig::balanced(),
+        HashConfig::balanced(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
     let gen2_cloned = gen1.clone();
     let gen3 = ApiKeyManagerV0::init(
         "g3",

@@ -44,7 +44,13 @@ fn test_checksum_prevents_expensive_verification() {
 fn test_valid_checksum_proceeds_to_argon2() {
     // Verify that valid checksums still go through Argon2 verification
     let config = KeyConfig::default().disable_checksum();
-    let generator = ApiKeyManagerV0::init("verify", config, HashConfig::default(), std::time::Duration::ZERO).unwrap();
+    let generator = ApiKeyManagerV0::init(
+        "verify",
+        config,
+        HashConfig::default(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
 
     let key = generator.generate(Environment::production()).unwrap();
 
@@ -70,8 +76,13 @@ fn test_valid_checksum_proceeds_to_argon2() {
 #[test]
 fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
-    let with_checksum =
-        ApiKeyManagerV0::init("dos1", KeyConfig::default(), HashConfig::default(), std::time::Duration::ZERO).unwrap();
+    let with_checksum = ApiKeyManagerV0::init(
+        "dos1",
+        KeyConfig::default(),
+        HashConfig::default(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
 
     let without_checksum = ApiKeyManagerV0::init(
         "dos2",
