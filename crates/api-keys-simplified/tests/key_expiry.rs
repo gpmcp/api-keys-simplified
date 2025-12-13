@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString};
+use api_keys_simplified::{
+    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, SecureString,
+};
 use chrono::{Duration, Utc};
 
 /// Test that a key with future expiry is valid
@@ -88,7 +90,9 @@ fn test_expired_key_wrong_hash() {
 #[test]
 fn test_short_expiry() {
     const EXPIRY: i64 = 3;
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let config = KeyConfig::default();
+    let h_config = HashConfig::default();
+    let manager = ApiKeyManagerV0::init("sk", config, h_config, std::time::Duration::ZERO).unwrap();
     let expiry = Utc::now() + Duration::seconds(EXPIRY);
     let key = manager
         .generate_with_expiry(Environment::production(), expiry)
@@ -196,7 +200,13 @@ fn test_expiry_without_checksum() {
     use api_keys_simplified::{HashConfig, KeyConfig};
 
     let config = KeyConfig::default().disable_checksum();
-    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init(
+        "sk",
+        config,
+        HashConfig::default(),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
 
     let past = Utc::now() - Duration::hours(1);
     let future = Utc::now() + Duration::hours(1);

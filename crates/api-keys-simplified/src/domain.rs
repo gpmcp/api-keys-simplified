@@ -27,6 +27,8 @@ pub struct ApiKeyManagerV0 {
     validator: KeyValidator,
     #[getter(skip)]
     include_checksum: bool,
+    #[getter(skip)]
+    expiry_grace_period: std::time::Duration,
 }
 
 // FIXME: Need better naming
@@ -53,28 +55,35 @@ impl ApiKeyManagerV0 {
         prefix: impl Into<String>,
         config: KeyConfig,
         hash_config: HashConfig,
+        expiry_grace_period: std::time::Duration,
     ) -> std::result::Result<Self, InitError> {
         let include_checksum = *config.checksum_length() != 0;
         let prefix = KeyPrefix::new(prefix)?;
         let generator = KeyGenerator::new(prefix, config)?;
-        let hasher = KeyHasher::new(hash_config.clone());
+        let hasher = KeyHasher::new(hash_config);
 
         // Generate dummy key and its hash for timing attack protection
         let dummy_key = generator.dummy_key().clone();
         let dummy_hash = hasher.hash(&dummy_key)?;
 
-        let validator = KeyValidator::new(&hash_config, include_checksum, dummy_key, dummy_hash)?;
+        let validator = KeyValidator::new(include_checksum, dummy_key, dummy_hash)?;
 
         Ok(Self {
             generator,
             hasher,
             validator,
             include_checksum,
+            expiry_grace_period,
         })
     }
 
     pub fn init_default_config(prefix: impl Into<String>) -> std::result::Result<Self, InitError> {
-        Self::init(prefix, KeyConfig::default(), HashConfig::default())
+        Self::init(
+            prefix,
+            KeyConfig::default(),
+            HashConfig::default(),
+            std::time::Duration::from_secs(10),
+        )
     }
     pub fn init_high_security_config(
         prefix: impl Into<String>,
@@ -83,6 +92,7 @@ impl ApiKeyManagerV0 {
             prefix,
             KeyConfig::high_security(),
             HashConfig::high_security(),
+            std::time::Duration::from_secs(10),
         )
     }
 
@@ -143,11 +153,23 @@ impl ApiKeyManagerV0 {
     ///
     /// Returns `KeyStatus` indicating whether the key is valid or invalid.
     ///
+    /// # Parameters
+    ///
+    /// * `key` - The API key to verify
+    /// * `stored_hash` - The Argon2 hash stored in your database
+    /// * `expiry_grace_period` - Optional grace period duration after expiry.
+    ///   - `None`: Skip expiry validation (all keys treated as non-expired)
+    ///   - `Some(Duration::ZERO)`: Strict expiry check (no grace period)
+    ///   - `Some(duration)`: Key remains valid for `duration` after its expiry time
+    ///
+    /// The grace period protects against clock skew issues. Once a key expires beyond
+    /// the grace period, it stays expired even if the system clock goes backwards.
+    ///
     /// # Security Flow
     ///
     /// 1. **Checksum validation** (if enabled): Rejects invalid keys in ~20μs
     /// 2. **Argon2 verification**: Verifies hash for valid checksums (~300ms)
-    /// 3. **Expiry check**: Returns `Invalid` if the key's timestamp has passed
+    /// 3. **Expiry check**: Returns `Invalid` if expired beyond grace period
     ///
     /// # Returns
     ///
@@ -165,6 +187,7 @@ impl ApiKeyManagerV0 {
     ///
     /// ```rust
     /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus};
+    /// # use std::time::Duration;
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// match manager.verify(key.key(), key.hash())? {
@@ -178,8 +201,11 @@ impl ApiKeyManagerV0 {
             return Ok(KeyStatus::Invalid);
         }
 
-        self.validator
-            .verify(key.expose_secret(), stored_hash.as_ref())
+        self.validator.verify(
+            key.expose_secret(),
+            stored_hash.as_ref(),
+            self.expiry_grace_period,
+        )
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
@@ -282,7 +308,13 @@ mod tests {
     fn test_custom_config() {
         let config = KeyConfig::new().with_entropy(32).unwrap();
 
-        let generator = ApiKeyManagerV0::init("custom", config, HashConfig::default()).unwrap();
+        let generator = ApiKeyManagerV0::init(
+            "custom",
+            config,
+            HashConfig::default(),
+            std::time::Duration::ZERO,
+        )
+        .unwrap();
         let key = generator.generate(Environment::production()).unwrap();
         assert!(generator.verify_checksum(key.key()).unwrap());
     }
