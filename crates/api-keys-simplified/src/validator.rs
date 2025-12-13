@@ -33,7 +33,6 @@ impl KeyValidator {
     const MAX_HASH_LENGTH: usize = 512;
 
     pub fn new(
-        _hash_config: &crate::HashConfig,
         has_checksum: bool,
         dummy_key: SecureString,
         dummy_hash: String,
@@ -48,27 +47,34 @@ impl KeyValidator {
         })
     }
 
-    fn verify_expiry(&self, parts: Parts) -> Result<KeyStatus> {
+    fn verify_expiry(&self, parts: Parts, expiry_grace_period: std::time::Duration) -> Result<KeyStatus> {
         if let Some(expiry) = parts.expiry_b64 {
             let decoded = URL_SAFE_NO_PAD
                 .decode(expiry)
                 .or(Err(Error::InvalidFormat))?;
-            let expiry = i64::from_be_bytes(decoded.try_into().or(Err(Error::InvalidFormat))?);
+            let expiry_timestamp = i64::from_be_bytes(decoded.try_into().or(Err(Error::InvalidFormat))?);
 
-            // TODO(ARCHITECTURE): time libs are platform dependent.
-            // We should set an `infra` layer and abstract
-            // out these libs.
-            if chrono::Utc::now().timestamp() <= expiry {
-                Ok(KeyStatus::Valid)
-            } else {
-                Ok(KeyStatus::Invalid)
+            let current_time = chrono::Utc::now().timestamp();
+            let grace_seconds = expiry_grace_period.as_secs() as i64;
+            
+            // Key is invalid if it expired more than grace_period ago
+            // This ensures once a key expires beyond the grace period, it stays expired
+            // even if the clock goes backwards
+            if expiry_timestamp + grace_seconds < current_time {
+                return Ok(KeyStatus::Invalid);
             }
+            Ok(KeyStatus::Valid)
         } else {
             Ok(KeyStatus::Valid)
         }
     }
 
-    pub fn verify(&self, provided_key: &str, stored_hash: &str) -> Result<KeyStatus> {
+    pub fn verify(
+        &self,
+        provided_key: &str,
+        stored_hash: &str,
+        expiry_grace_period: std::time::Duration,
+    ) -> Result<KeyStatus> {
         // Input length validation to prevent DoS attacks
         if provided_key.len() > Self::MAX_KEY_LENGTH {
             self.dummy_load();
@@ -109,7 +115,7 @@ impl KeyValidator {
         // SECURITY: Force evaluation of expiry check BEFORE the match to ensure
         // constant-time execution. This prevents the compiler from short-circuiting
         // the expiry check when argon_result is Invalid, which would create a timing oracle.
-        let expiry_result = self.verify_expiry(token_parts)?;
+        let expiry_result = self.verify_expiry(token_parts, expiry_grace_period)?;
 
         match (argon_result, expiry_result) {
             (KeyStatus::Invalid, _) | (_, KeyStatus::Invalid) => Ok(KeyStatus::Invalid),
@@ -151,15 +157,15 @@ mod tests {
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
         assert_eq!(
             validator
-                .verify(key.expose_secret(), hash.as_ref())
+                .verify(key.expose_secret(), hash.as_ref(), std::time::Duration::ZERO)
                 .unwrap(),
             KeyStatus::Valid
         );
         assert_eq!(
-            validator.verify("wrong_key", hash.as_ref()).unwrap(),
+            validator.verify("wrong_key", hash.as_ref(), std::time::Duration::ZERO).unwrap(),
             KeyStatus::Invalid
         );
     }
@@ -168,8 +174,8 @@ mod tests {
     fn test_invalid_hash_format() {
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
-        let result = validator.verify("any_key", "invalid_hash");
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
+        let result = validator.verify("any_key", "invalid_hash", std::time::Duration::ZERO);
         // After timing oracle fix: invalid hash format returns Ok(Invalid) instead of Err
         // to prevent timing-based user enumeration attacks
         assert!(result.is_ok());
@@ -185,8 +191,8 @@ mod tests {
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
-        let result = validator.verify(&oversized_key, hash.as_ref());
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
+        let result = validator.verify(&oversized_key, hash.as_ref(), std::time::Duration::ZERO);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
     }
@@ -197,8 +203,8 @@ mod tests {
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
-        let result = validator.verify("valid_key", &oversized_hash);
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
+        let result = validator.verify("valid_key", &oversized_hash, std::time::Duration::ZERO);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
     }
@@ -211,16 +217,16 @@ mod tests {
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
-        let result = validator.verify(&max_key, hash.as_ref());
+        let result = validator.verify(&max_key, hash.as_ref(), std::time::Duration::ZERO);
         assert!(result.is_ok()); // Should not error on length check
 
         // Test just over boundary (513 chars - should fail)
         let over_max_key = "a".repeat(513);
-        let result = validator.verify(&over_max_key, hash.as_ref());
+        let result = validator.verify(&over_max_key, hash.as_ref(), std::time::Duration::ZERO);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
     }
@@ -233,17 +239,17 @@ mod tests {
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator =
-            KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
+            KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
 
-        let result1 = validator.verify("wrong_key", valid_hash.as_ref());
+        let result1 = validator.verify("wrong_key", valid_hash.as_ref(), std::time::Duration::ZERO);
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), KeyStatus::Invalid);
 
-        let result2 = validator.verify(valid_key.expose_secret(), "invalid_hash_format");
+        let result2 = validator.verify(valid_key.expose_secret(), "invalid_hash_format", std::time::Duration::ZERO);
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), KeyStatus::Invalid);
 
-        let result3 = validator.verify(valid_key.expose_secret(), "not even close to valid");
+        let result3 = validator.verify(valid_key.expose_secret(), "not even close to valid", std::time::Duration::ZERO);
         assert!(result3.is_ok());
         assert_eq!(result3.unwrap(), KeyStatus::Invalid);
     }

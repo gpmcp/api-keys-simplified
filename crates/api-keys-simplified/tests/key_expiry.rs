@@ -196,7 +196,7 @@ fn test_expiry_without_checksum() {
     use api_keys_simplified::{HashConfig, KeyConfig};
 
     let config = KeyConfig::default().disable_checksum();
-    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default()).unwrap();
+    let manager = ApiKeyManagerV0::init("sk", config, HashConfig::default(), std::time::Duration::ZERO).unwrap();
 
     let past = Utc::now() - Duration::hours(1);
     let future = Utc::now() + Duration::hours(1);
