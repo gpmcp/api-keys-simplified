@@ -1,4 +1,4 @@
-use crate::error::ConfigError;
+use crate::error::InitError;
 use crate::validator::KeyStatus;
 use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
@@ -53,12 +53,17 @@ impl ApiKeyManagerV0 {
         prefix: impl Into<String>,
         config: KeyConfig,
         hash_config: HashConfig,
-    ) -> std::result::Result<Self, ConfigError> {
+    ) -> std::result::Result<Self, InitError> {
         let include_checksum = *config.checksum_length() != 0;
         let prefix = KeyPrefix::new(prefix)?;
-        let generator = KeyGenerator::new(prefix, config);
-        let validator = KeyValidator::new(&hash_config, include_checksum)?;
-        let hasher = KeyHasher::new(hash_config);
+        let generator = KeyGenerator::new(prefix, config)?;
+        let hasher = KeyHasher::new(hash_config.clone());
+
+        // Generate dummy key and its hash for timing attack protection
+        let dummy_key = generator.dummy_key().clone();
+        let dummy_hash = hasher.hash(&dummy_key)?;
+
+        let validator = KeyValidator::new(&hash_config, include_checksum, dummy_key, dummy_hash)?;
 
         Ok(Self {
             generator,
@@ -68,14 +73,12 @@ impl ApiKeyManagerV0 {
         })
     }
 
-    pub fn init_default_config(
-        prefix: impl Into<String>,
-    ) -> std::result::Result<Self, ConfigError> {
+    pub fn init_default_config(prefix: impl Into<String>) -> std::result::Result<Self, InitError> {
         Self::init(prefix, KeyConfig::default(), HashConfig::default())
     }
     pub fn init_high_security_config(
         prefix: impl Into<String>,
-    ) -> std::result::Result<Self, ConfigError> {
+    ) -> std::result::Result<Self, InitError> {
         Self::init(
             prefix,
             KeyConfig::high_security(),

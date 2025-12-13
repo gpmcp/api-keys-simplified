@@ -44,7 +44,7 @@ pub use config::{
     ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator,
 };
 pub use domain::{ApiKey, ApiKeyManagerV0, Hash, NoHash};
-pub use error::{ConfigError, Error, Result};
+pub use error::{ConfigError, Error, InitError, Result};
 pub use secure::{SecureString, SecureStringExt};
 pub use validator::KeyStatus;
 
