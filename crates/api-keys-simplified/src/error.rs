@@ -80,6 +80,21 @@ pub enum OperationError {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+
+/// Error type for initialization operations that can fail with either
+/// configuration errors or runtime operation errors.
+#[derive(Debug, Error)]
+pub enum InitError {
+    /// Configuration error during initialization
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+    
+    /// Operation error during initialization (i.e., dummy key generation)
+    #[error(transparent)]
+    Operation(#[from] Error),
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

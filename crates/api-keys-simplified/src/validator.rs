@@ -1,6 +1,6 @@
 use crate::error::{ConfigError, Error, Result};
 use crate::token_parser::{parse_token, Parts};
-use crate::HashConfig;
+use crate::SecureString;
 use argon2::{
     password_hash::{PasswordHash, PasswordVerifier},
     Argon2,
@@ -13,6 +13,8 @@ use password_hash::PasswordHashString;
 pub struct KeyValidator {
     hash: PasswordHashString,
     has_checksum: bool,
+    /// Dummy password for timing attack protection (should be a generated API key)
+    dummy_password: SecureString,
 }
 
 /// Represents the status of an API key after verification
@@ -31,14 +33,19 @@ impl KeyValidator {
     const MAX_HASH_LENGTH: usize = 512;
 
     pub fn new(
-        hash_config: &HashConfig,
+        _hash_config: &crate::HashConfig,
         has_checksum: bool,
+        dummy_key: SecureString,
+        dummy_hash: String,
     ) -> std::result::Result<KeyValidator, ConfigError> {
-        let dummy_hash = format!("$argon2id$v=19$m={},t={},p={}$0bJKH8iokgID0PWXnrsXvw$oef42xfOKBQMkCpvoQTeVHLhsYf+EQWMc2u4Ebn1MUo", hash_config.memory_cost(), hash_config.time_cost(), hash_config.parallelism());
-        let hash =
-            PasswordHashString::new(&dummy_hash).map_err(|_| ConfigError::InvalidArgon2Hash)?;
+        let hash = PasswordHashString::new(&dummy_hash)
+            .map_err(|_| ConfigError::InvalidArgon2Hash)?;
 
-        Ok(KeyValidator { hash, has_checksum })
+        Ok(KeyValidator {
+            hash,
+            has_checksum,
+            dummy_password: dummy_key,
+        })
     }
 
     fn verify_expiry(&self, parts: Parts) -> Result<KeyStatus> {
@@ -113,12 +120,12 @@ impl KeyValidator {
         // SECURITY: Perform dummy Argon2 verification to match timing of real verification
         // This prevents timing attacks that could distinguish between "invalid hash format"
         // and "valid hash but wrong password" errors
-        let dummy_password =
-            b"text-v1-test-okphUY-aqllb-qHoZDC9mVlm5sY9lvmm.AAAAAGk2Mvg.a54368d6331bf42dc18c";
-        parse_token(dummy_password, self.has_checksum).ok();
+        use crate::ExposeSecret;
+        let dummy_bytes = self.dummy_password.expose_secret().as_bytes();
+        parse_token(dummy_bytes, self.has_checksum).ok();
 
         Argon2::default()
-            .verify_password(dummy_password, &self.hash.password_hash())
+            .verify_password(dummy_bytes, &self.hash.password_hash())
             .ok();
     }
 }
@@ -129,13 +136,21 @@ mod tests {
     use crate::ExposeSecret;
     use crate::{config::HashConfig, hasher::KeyHasher, SecureString};
 
+    fn dummy_key_and_hash() -> (SecureString, String) {
+        let key = SecureString::from("sk-live-dummy123test".to_string());
+        let hasher = KeyHasher::new(HashConfig::default());
+        let hash = hasher.hash(&key).unwrap();
+        (key, hash)
+    }
+
     #[test]
     fn test_verification() {
         let key = SecureString::from("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         assert_eq!(
             validator
                 .verify(key.expose_secret(), hash.as_ref())
@@ -150,7 +165,8 @@ mod tests {
 
     #[test]
     fn test_invalid_hash_format() {
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify("any_key", "invalid_hash");
         // After timing oracle fix: invalid hash format returns Ok(Invalid) instead of Err
         // to prevent timing-based user enumeration attacks
@@ -165,7 +181,8 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify(&oversized_key, hash.as_ref());
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -175,7 +192,8 @@ mod tests {
     fn test_oversized_hash_rejection() {
         let oversized_hash = "a".repeat(513); // Exceeds MAX_HASH_LENGTH
 
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
         let result = validator.verify("valid_key", &oversized_hash);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::InvalidFormat));
@@ -187,7 +205,8 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
 
         // Test at boundary (512 chars - should pass)
         let max_key = "a".repeat(512);
@@ -207,7 +226,8 @@ mod tests {
         let hasher = KeyHasher::new(HashConfig::default());
         let valid_hash = hasher.hash(&valid_key).unwrap();
 
-        let validator = KeyValidator::new(&HashConfig::default(), true).unwrap();
+        let (dummy_key, dummy_hash) = dummy_key_and_hash();
+        let validator = KeyValidator::new(&HashConfig::default(), true, dummy_key, dummy_hash).unwrap();
 
         let result1 = validator.verify("wrong_key", valid_hash.as_ref());
         assert!(result1.is_ok());

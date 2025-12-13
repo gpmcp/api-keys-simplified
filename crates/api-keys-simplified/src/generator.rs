@@ -13,17 +13,38 @@ use zeroize::Zeroizing;
 // Prevent DoS: Validate input length before processing
 const MAX_KEY_LENGTH: usize = 512;
 const CHECKSUM_SEPARATOR: u8 = b'.';
-static DUMMY_KEY: &str = "dummy_key_for_timing_protection";
 
 #[derive(Clone)]
 pub struct KeyGenerator {
     prefix: KeyPrefix,
     config: KeyConfig,
+    /// Dummy key for timing attack protection
+    dummy_key: SecureString,
 }
 
 impl KeyGenerator {
-    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> KeyGenerator {
-        Self { prefix, config }
+    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> Result<KeyGenerator> {
+        // Generate a dummy key for timing attack protection
+        // This is used in verify_checksum when input is invalid
+        let dummy_generator = Self {
+            prefix: prefix.clone(),
+            config: config.clone(),
+            dummy_key: SecureString::from(String::new()), // Temporary placeholder
+        };
+        
+        let dummy_key = dummy_generator.generate(Environment::Production, None)?;
+        
+        Ok(Self {
+            prefix,
+            config,
+            dummy_key,
+        })
+    }
+    
+    /// Returns a reference to the dummy key for timing attack protection.
+    /// This is used by KeyValidator to perform dummy work.
+    pub(crate) fn dummy_key(&self) -> &SecureString {
+        &self.dummy_key
     }
 
     fn generate_key(&self) -> Result<Zeroizing<Vec<u8>>> {
@@ -153,7 +174,7 @@ impl KeyGenerator {
         if key_bytes.len() > MAX_KEY_LENGTH {
             // Perform fake work to prevent timing side-channel attacks
             // This ensures rejection takes similar time as actual verification
-            let _ = self.compute_checksum(DUMMY_KEY, None);
+            let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
             return Err(Error::InvalidFormat);
         }
 
@@ -163,7 +184,7 @@ impl KeyGenerator {
             Ok((_, parts)) => parts,
             Err(_) => {
                 // If parsing fails, perform dummy work for timing consistency
-                let _ = self.compute_checksum(DUMMY_KEY, None);
+                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
                 return Ok(false);
             }
         };
@@ -172,7 +193,7 @@ impl KeyGenerator {
         let checksum_bytes = match parts.checksum {
             Some(c) => c,
             None => {
-                let _ = self.compute_checksum(DUMMY_KEY, None);
+                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
                 return Ok(false);
             }
         };
@@ -180,7 +201,7 @@ impl KeyGenerator {
         let computed = match self.compute_checksum(parts.key, parts.expiry_b64) {
             Some(computed) => computed,
             None => {
-                let _ = self.compute_checksum(DUMMY_KEY, None);
+                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
                 return Ok(false);
             }
         };
@@ -285,7 +306,7 @@ mod tests {
         let config = KeyConfig::default();
         let checksum_len = *config.checksum_length();
 
-        let generator = KeyGenerator::new(prefix, config);
+        let generator = KeyGenerator::new(prefix, config).unwrap();
         let key = generator.generate(env, None).unwrap();
         assert!(key.expose_secret().starts_with("sk-live-"));
 
@@ -332,7 +353,7 @@ mod tests {
         let env = Environment::Test;
         let config = KeyConfig::default();
 
-        let generator = KeyGenerator::new(prefix, config);
+        let generator = KeyGenerator::new(prefix, config).unwrap();
         let key = generator.generate(env, None).unwrap();
 
         // Verify checksum is separated by '.' (enabled by default)
@@ -375,11 +396,11 @@ mod tests {
         let env = Environment::Development;
 
         let config16 = KeyConfig::new().with_entropy(16).unwrap();
-        let generator16 = KeyGenerator::new(prefix.clone(), config16);
+        let generator16 = KeyGenerator::new(prefix.clone(), config16).unwrap();
         let key16 = generator16.generate(env.clone(), None).unwrap();
 
         let config32 = KeyConfig::new().with_entropy(32).unwrap();
-        let generator32 = KeyGenerator::new(prefix, config32);
+        let generator32 = KeyGenerator::new(prefix, config32).unwrap();
         let key32 = generator32.generate(env, None).unwrap();
 
         assert!(key32.len() > key16.len());
@@ -392,7 +413,7 @@ mod tests {
         let config = KeyConfig::default();
         let checksum_len = *config.checksum_length();
 
-        let generator = KeyGenerator::new(prefix, config);
+        let generator = KeyGenerator::new(prefix, config).unwrap();
         let key = generator.generate(env, None).unwrap();
 
         // With dash separator and checksum (default): test-live-data.checksum
@@ -432,7 +453,7 @@ mod tests {
 
         // Test with Slash
         let config_slash = KeyConfig::default().with_separator(Separator::Slash);
-        let generator_slash = KeyGenerator::new(prefix.clone(), config_slash);
+        let generator_slash = KeyGenerator::new(prefix.clone(), config_slash).unwrap();
         let key_slash = generator_slash.generate(env.clone(), None).unwrap();
         assert!(key_slash.expose_secret().contains('/'));
         assert!(!key_slash.expose_secret().contains('~'));
@@ -440,7 +461,7 @@ mod tests {
 
         // Test with Dash (default)
         let config_dash = KeyConfig::default().with_separator(Separator::Dash);
-        let generator_dash = KeyGenerator::new(prefix.clone(), config_dash);
+        let generator_dash = KeyGenerator::new(prefix.clone(), config_dash).unwrap();
         let key_dash = generator_dash.generate(env.clone(), None).unwrap();
         assert!(key_dash.expose_secret().contains('-'));
         // Checksum is always separated by dot
@@ -450,7 +471,7 @@ mod tests {
 
         // Test with Tilde
         let config_tilde = KeyConfig::default().with_separator(Separator::Tilde);
-        let generator_tilde = KeyGenerator::new(prefix, config_tilde);
+        let generator_tilde = KeyGenerator::new(prefix, config_tilde).unwrap();
         let key_tilde = generator_tilde.generate(env, None).unwrap();
         assert!(key_tilde.expose_secret().contains('~'));
         assert!(key_tilde.len() > 10);
