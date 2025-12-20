@@ -55,7 +55,9 @@ fn test_valid_checksum_proceeds_to_argon2() {
     let key = generator.generate(Environment::production()).unwrap();
 
     let start = Instant::now();
-    let result = generator.verify(key.key(), key.expose_hash().hash()).unwrap();
+    let result = generator
+        .verify(key.key(), key.expose_hash().hash())
+        .unwrap();
     let duration = start.elapsed();
 
     // Should succeed
@@ -145,14 +147,18 @@ fn test_without_checksum_still_works() {
 
     // Should still verify correctly
     assert_eq!(
-        generator.verify(key.key(), key.expose_hash().hash()).unwrap(),
+        generator
+            .verify(key.key(), key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 
     // Invalid key should still fail
     let invalid = SecureString::from("nochk-test-invalid".to_string());
     assert_eq!(
-        generator.verify(&invalid, key.expose_hash().hash()).unwrap(),
+        generator
+            .verify(&invalid, key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }

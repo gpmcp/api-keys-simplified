@@ -21,11 +21,15 @@ fn test_different_keys_same_hash() {
 
     // Different keys should not validate against each other's hashes
     assert_eq!(
-        generator.verify(key2.key(), key1.expose_hash().hash()).unwrap(),
+        generator
+            .verify(key2.key(), key1.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        generator.verify(key1.key(), key2.expose_hash().hash()).unwrap(),
+        generator
+            .verify(key1.key(), key2.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }

@@ -18,7 +18,7 @@ impl KeyHasher {
     pub fn new(config: HashConfig) -> Self {
         Self { config }
     }
-    
+
     /// Hashes an API key using Argon2id with a randomly generated salt.
     ///
     /// Returns a tuple containing:
@@ -148,7 +148,7 @@ mod tests {
 
         // Get a salt from the first hash
         let (_hash, salt) = hasher.hash(&key).unwrap();
-        
+
         // Use the same salt to generate two hashes
         let hash1 = hasher.hash_with_salt(&key, &salt).unwrap();
         let hash2 = hasher.hash_with_salt(&key, &salt).unwrap();

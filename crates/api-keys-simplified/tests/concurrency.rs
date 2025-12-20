@@ -211,7 +211,10 @@ fn test_high_contention_mixed_operations() {
                 } else {
                     // Generate and verify
                     let key = gen.generate(Environment::test()).unwrap();
-                    assert_eq!(gen.verify(key.key(), key.expose_hash().hash()).unwrap(), KeyStatus::Valid);
+                    assert_eq!(
+                        gen.verify(key.key(), key.expose_hash().hash()).unwrap(),
+                        KeyStatus::Valid
+                    );
                 }
             }
         }));

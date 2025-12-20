@@ -153,7 +153,9 @@ fn test_expiry_across_environments() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(dev_valid.key(), dev_valid.expose_hash().hash()).unwrap(),
+        manager
+            .verify(dev_valid.key(), dev_valid.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
@@ -261,15 +263,21 @@ fn test_multiple_keys_same_expiry() {
 
     // All should be valid
     assert_eq!(
-        manager.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
+        manager
+            .verify(key1.key(), key1.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
+        manager
+            .verify(key2.key(), key2.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(key3.key(), key3.expose_hash().hash()).unwrap(),
+        manager
+            .verify(key3.key(), key3.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 }
@@ -423,11 +431,15 @@ fn test_expiry_with_custom_prefix() {
         .unwrap();
 
     assert_eq!(
-        manager1.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
+        manager1
+            .verify(key1.key(), key1.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        manager2.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
+        manager2
+            .verify(key2.key(), key2.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }
