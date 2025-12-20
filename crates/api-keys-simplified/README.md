@@ -34,8 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Show key to user ONCE (they must save it)
     println!("API Key: {}", api_key.key().expose_secret());
 
-    // 4. Store only the hash in your database
-    database::save_user_key_hash(user_id, api_key.hash())?;
+    // 4. Store both hash AND salt in database (required for hash verification)
+    let hash_data = api_key.expose_hash();
+    database::save_user_key(user_id, hash_data.hash(), hash_data.salt())?;
 
     // 5. Later: verify an incoming key (checksum validated first!)
     let provided_key_str = request.headers().get("Authorization")?.replace("Bearer ", "");
@@ -165,7 +166,10 @@ println!("{:?}", key);  // Prints: ApiKey { key: "[REDACTED]", ... }
 
 // ✅ Show keys only once
 display_to_user_once(key.key().expose_secret());
-db.save(key.hash());  // Store hash only
+
+// Store both hash and salt (salt is needed for hash regeneration)
+let hash_data = key.expose_hash();
+db.save(hash_data.hash(), hash_data.salt());
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
@@ -176,14 +180,18 @@ let response = client.get("https://api.example.com")
 fn rotate_key(manager: &ApiKeyManagerV0, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
     let new_key = manager.generate(Environment::production())?;
     db.revoke_old_keys(user_id)?;
-    db.save_new_hash(user_id, new_key.hash())?;
+    
+    let hash_data = new_key.expose_hash();
+    db.save_new_key(user_id, hash_data.hash(), hash_data.salt())?;
     Ok(new_key)
 }
 
 // ✅ Use expiration for temporary access (trials, partners)
 let trial_expiry = Utc::now() + Duration::days(7);
 let trial_key = manager.generate_with_expiry(Environment::production(), trial_expiry)?;
-db.save(user_id, trial_key.hash())?;
+
+let hash_data = trial_key.expose_hash();
+db.save(user_id, hash_data.hash(), hash_data.salt())?;
 
 // ✅ Implement key revocation for compromised keys
 fn revoke_key(user_id: u64, key_hash: &str) -> Result<(), Box<dyn std::error::Error>> {

@@ -11,7 +11,7 @@ fn test_checksum_prevents_expensive_verification() {
 
     // Generate a valid key with checksum
     let valid_key = generator.generate(Environment::test()).unwrap();
-    let valid_hash = valid_key.hash().to_string();
+    let valid_hash = valid_key.expose_hash().hash().to_string();
 
     // Create invalid key with corrupted checksum (but valid format)
     let key_str = valid_key.key().expose_secret();
@@ -55,7 +55,9 @@ fn test_valid_checksum_proceeds_to_argon2() {
     let key = generator.generate(Environment::production()).unwrap();
 
     let start = Instant::now();
-    let result = generator.verify(key.key(), key.hash()).unwrap();
+    let result = generator
+        .verify(key.key(), key.expose_hash().hash())
+        .unwrap();
     let duration = start.elapsed();
 
     // Should succeed
@@ -74,6 +76,7 @@ fn test_valid_checksum_proceeds_to_argon2() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
     let with_checksum = ApiKeyManagerV0::init(
@@ -104,7 +107,7 @@ fn test_dos_protection_comparison() {
     // Test WITH checksum - should be fast
     let start = Instant::now();
     for invalid_key in &invalid_keys {
-        let _ = with_checksum.verify(invalid_key, key_with.hash());
+        let _ = with_checksum.verify(invalid_key, key_with.expose_hash().hash());
     }
     let with_checksum_time = start.elapsed();
 
@@ -115,7 +118,7 @@ fn test_dos_protection_comparison() {
 
     let start = Instant::now();
     for invalid_key in &invalid_keys_no_checksum {
-        let _ = without_checksum.verify(invalid_key, key_without.hash());
+        let _ = without_checksum.verify(invalid_key, key_without.expose_hash().hash());
     }
     let without_checksum_time = start.elapsed();
 
@@ -144,14 +147,18 @@ fn test_without_checksum_still_works() {
 
     // Should still verify correctly
     assert_eq!(
-        generator.verify(key.key(), key.hash()).unwrap(),
+        generator
+            .verify(key.key(), key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 
     // Invalid key should still fail
     let invalid = SecureString::from("nochk-test-invalid".to_string());
     assert_eq!(
-        generator.verify(&invalid, key.hash()).unwrap(),
+        generator
+            .verify(&invalid, key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }

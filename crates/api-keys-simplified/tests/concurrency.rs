@@ -72,7 +72,7 @@ fn test_concurrent_verification_and_checksum() {
         let key = generator.generate(Environment::test()).unwrap();
         keys_and_hashes.push((
             key.key().expose_secret().to_string(),
-            key.hash().to_string(),
+            key.expose_hash().hash().to_string(),
         ));
     }
     let keys_and_hashes = Arc::new(keys_and_hashes);
@@ -162,25 +162,25 @@ fn test_clone_safety_and_config_isolation() {
 
     // Verify with own generators
     assert_eq!(
-        gen1.verify(key1.key(), key1.hash()).unwrap(),
+        gen1.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        gen2.verify(key2.key(), key2.hash()).unwrap(),
+        gen2.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        gen3.verify(key3.key(), key3.hash()).unwrap(),
+        gen3.verify(key3.key(), key3.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 
     // Cross-verify clones (same config)
     assert_eq!(
-        gen1.verify(key2.key(), key2.hash()).unwrap(),
+        gen1.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        gen2.verify(key1.key(), key1.hash()).unwrap(),
+        gen2.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 
@@ -211,7 +211,10 @@ fn test_high_contention_mixed_operations() {
                 } else {
                     // Generate and verify
                     let key = gen.generate(Environment::test()).unwrap();
-                    assert_eq!(gen.verify(key.key(), key.hash()).unwrap(), KeyStatus::Valid);
+                    assert_eq!(
+                        gen.verify(key.key(), key.expose_hash().hash()).unwrap(),
+                        KeyStatus::Valid
+                    );
                 }
             }
         }));

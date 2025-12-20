@@ -5,7 +5,7 @@ use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus};
 fn test_basic_flow() {
     let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
-    let hash = key.hash();
+    let hash = key.expose_hash().hash();
 
     assert_eq!(generator.verify(key.key(), hash).unwrap(), KeyStatus::Valid);
 
@@ -46,7 +46,7 @@ fn test_different_environments() {
 fn test_verification_with_wrong_key() {
     let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key = generator.generate(Environment::production()).unwrap();
-    let hash = key.hash();
+    let hash = key.expose_hash().hash();
 
     let wrong1 = api_keys_simplified::SecureString::from("completely_wrong_key".to_string());
     assert_eq!(generator.verify(&wrong1, hash).unwrap(), KeyStatus::Invalid);
@@ -62,5 +62,5 @@ fn test_key_uniqueness() {
     let key2 = generator.generate(Environment::production()).unwrap();
 
     assert_ne!(key1.key().expose_secret(), key2.key().expose_secret());
-    assert_ne!(key1.hash(), key2.hash());
+    assert_ne!(key1.expose_hash(), key2.expose_hash());
 }

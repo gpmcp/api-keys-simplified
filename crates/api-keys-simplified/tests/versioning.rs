@@ -126,25 +126,35 @@ fn test_different_versions_verify_correctly() {
 
     // Each manager should successfully verify its own key
     assert_eq!(
-        manager_v0.verify(key_v0.key(), key_v0.hash()).unwrap(),
+        manager_v0
+            .verify(key_v0.key(), key_v0.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager_v1.verify(key_v1.key(), key_v1.hash()).unwrap(),
+        manager_v1
+            .verify(key_v1.key(), key_v1.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager_v2.verify(key_v2.key(), key_v2.hash()).unwrap(),
+        manager_v2
+            .verify(key_v2.key(), key_v2.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 
     // Keys should not cross-verify (wrong hash)
     assert_eq!(
-        manager_v0.verify(key_v1.key(), key_v0.hash()).unwrap(),
+        manager_v0
+            .verify(key_v1.key(), key_v0.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        manager_v1.verify(key_v2.key(), key_v1.hash()).unwrap(),
+        manager_v1
+            .verify(key_v2.key(), key_v1.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -172,19 +182,25 @@ fn test_versioned_keys_support_all_environments() {
 
     // All should verify
     assert_eq!(
-        manager.verify(dev.key(), dev.hash()).unwrap(),
+        manager.verify(dev.key(), dev.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(test.key(), test.hash()).unwrap(),
+        manager
+            .verify(test.key(), test.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(staging.key(), staging.hash()).unwrap(),
+        manager
+            .verify(staging.key(), staging.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(prod.key(), prod.hash()).unwrap(),
+        manager
+            .verify(prod.key(), prod.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 }
@@ -209,7 +225,7 @@ fn test_versioned_keys_with_different_separators() {
     // Should use slash separator but version format stays the same
     assert!(key_str.starts_with("sk/v1/live/"));
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -235,7 +251,7 @@ fn test_versioned_keys_without_checksum() {
 
     // Should still verify (checksum validation is skipped)
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -257,7 +273,7 @@ fn test_versioned_keys_with_high_security() {
     assert!(key_str.starts_with("sk-v2-live-"));
     assert!(key_str.len() > 100, "High security key should be longer");
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -281,11 +297,15 @@ fn test_migration_scenario() {
 
     // Both systems should work independently
     assert_eq!(
-        old_manager.verify(old_key.key(), old_key.hash()).unwrap(),
+        old_manager
+            .verify(old_key.key(), old_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        new_manager.verify(new_key.key(), new_key.hash()).unwrap(),
+        new_manager
+            .verify(new_key.key(), new_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 

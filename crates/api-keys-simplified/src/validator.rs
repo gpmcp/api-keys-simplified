@@ -150,7 +150,7 @@ mod tests {
     fn dummy_key_and_hash() -> (SecureString, String) {
         let key = SecureString::from("sk-live-dummy123test".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
-        let hash = hasher.hash(&key).unwrap();
+        let (hash, _salt) = hasher.hash(&key).unwrap();
         (key, hash)
     }
 
@@ -158,7 +158,7 @@ mod tests {
     fn test_verification() {
         let key = SecureString::from("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
-        let hash = hasher.hash(&key).unwrap();
+        let (hash, _salt) = hasher.hash(&key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator = KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
@@ -196,7 +196,7 @@ mod tests {
         let oversized_key = "a".repeat(513); // Exceeds MAX_KEY_LENGTH
         let valid_key = SecureString::from("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
-        let hash = hasher.hash(&valid_key).unwrap();
+        let (hash, _salt) = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator = KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
@@ -220,7 +220,7 @@ mod tests {
     fn test_boundary_key_length() {
         let valid_key = SecureString::from("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
-        let hash = hasher.hash(&valid_key).unwrap();
+        let (hash, _salt) = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator = KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
@@ -241,7 +241,7 @@ mod tests {
     fn test_timing_oracle_protection() {
         let valid_key = SecureString::from("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
-        let valid_hash = hasher.hash(&valid_key).unwrap();
+        let (valid_hash, _salt) = hasher.hash(&valid_key).unwrap();
 
         let (dummy_key, dummy_hash) = dummy_key_and_hash();
         let validator = KeyValidator::new(true, dummy_key, dummy_hash).unwrap();

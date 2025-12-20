@@ -45,7 +45,9 @@ fn test_high_security_preset() {
 
     assert!(key.key().len() > 50); // Higher entropy = longer key
     assert_eq!(
-        generator.verify(key.key(), key.hash()).unwrap(),
+        generator
+            .verify(key.key(), key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 }
@@ -71,7 +73,9 @@ fn test_custom_hash_config() {
     let key = generator.generate(Environment::dev()).unwrap();
 
     assert_eq!(
-        generator.verify(key.key(), key.hash()).unwrap(),
+        generator
+            .verify(key.key(), key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 }
