@@ -21,11 +21,11 @@ fn test_different_keys_same_hash() {
 
     // Different keys should not validate against each other's hashes
     assert_eq!(
-        generator.verify(key2.key(), key1.hash()).unwrap(),
+        generator.verify(key2.key(), key1.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        generator.verify(key1.key(), key2.hash()).unwrap(),
+        generator.verify(key1.key(), key2.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -59,7 +59,7 @@ fn test_hash_uniqueness_with_same_key() {
     let hash2 = generator.generate(Environment::production()).unwrap();
 
     // Even with same key value, hashes should differ due to unique salts
-    assert_ne!(hash1.hash(), hash2.hash());
+    assert_ne!(hash1.expose_hash(), hash2.expose_hash());
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn test_key_format_consistency() {
 fn test_argon2_phc_format() {
     let generator = ApiKeyManagerV0::init_default_config("phc").unwrap();
     let key = generator.generate(Environment::test()).unwrap();
-    let hash = key.hash();
+    let hash = key.expose_hash().hash();
 
     // Argon2 PHC format starts with $argon2id$
     assert!(hash.starts_with("$argon2id$"));

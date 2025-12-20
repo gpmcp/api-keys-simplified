@@ -13,7 +13,7 @@
 //! let generator = ApiKeyManagerV0::init_default_config("sk")?;
 //! let key = generator.generate(Environment::production())?;
 //! println!("Key: {}", key.key().expose_secret()); // Show once to user
-//! let hash = key.hash(); // Store this in database
+//! let hash = key.expose_hash(); // Store this in database
 //!
 //! // Validate a key - checksum is verified first for DoS protection
 //! let status = generator.verify(key.key(), hash)?;

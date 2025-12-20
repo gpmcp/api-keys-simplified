@@ -35,8 +35,12 @@ pub struct ApiKeyManagerV0 {
 /// Hash can be safely stored as String
 /// in memory without having to worry about
 /// zeroizing. Hashes are not secrets and are meant to be stored.
-#[derive(Debug)]
-pub struct Hash(String);
+#[derive(Debug, Getters, PartialEq)]
+pub struct Hash {
+    hash: String,
+    salt: String,
+}
+
 #[derive(Debug)]
 pub struct NoHash;
 
@@ -64,7 +68,7 @@ impl ApiKeyManagerV0 {
 
         // Generate dummy key and its hash for timing attack protection
         let dummy_key = generator.dummy_key().clone();
-        let dummy_hash = hasher.hash(&dummy_key)?;
+        let (dummy_hash, _salt) = hasher.hash(&dummy_key)?;
 
         let validator = KeyValidator::new(include_checksum, dummy_key, dummy_hash)?;
 
@@ -190,7 +194,7 @@ impl ApiKeyManagerV0 {
     /// # use std::time::Duration;
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
-    /// match manager.verify(key.key(), key.hash())? {
+    /// match manager.verify(key.key(), key.expose_hash())? {
     ///     KeyStatus::Valid => { /* grant access */ },
     ///     KeyStatus::Invalid => { /* reject - wrong key or expired */ },
     /// }
@@ -239,11 +243,22 @@ impl ApiKey<NoHash> {
         ApiKey { key, hash: NoHash }
     }
     pub fn into_hashed(self, hasher: &KeyHasher) -> Result<ApiKey<Hash>> {
-        let hash = hasher.hash(&self.key)?;
+        let (hash, salt) = hasher.hash(&self.key)?;
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash(hash),
+            hash: Hash { hash, salt },
+        })
+    }
+    pub fn into_hashed_with_salt(self, hasher: &KeyHasher, salt: &str) -> Result<ApiKey<Hash>> {
+        let hash = hasher.hash_with_salt(&self.key, salt)?;
+
+        Ok(ApiKey {
+            key: self.key,
+            hash: Hash {
+                hash,
+                salt: salt.to_string(),
+            },
         })
     }
     pub fn into_key(self) -> SecureString {
@@ -257,9 +272,10 @@ impl ApiKey<Hash> {
     /// Although it's safe to store hash,
     /// do NOT make unnecessary clones
     /// and avoid logging the hash.
-    pub fn hash(&self) -> &str {
-        &self.hash.0
+    pub fn expose_hash(&self) -> &Hash {
+        &self.hash
     }
+
     pub fn into_key(self) -> SecureString {
         self.key
     }
@@ -276,7 +292,7 @@ mod tests {
         let api_key = generator.generate(Environment::production()).unwrap();
 
         let key_str = api_key.key();
-        let hash_str = api_key.hash();
+        let hash_str = api_key.expose_hash().hash();
 
         assert!(key_str.expose_secret().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
@@ -317,5 +333,16 @@ mod tests {
         .unwrap();
         let key = generator.generate(Environment::production()).unwrap();
         assert!(generator.verify_checksum(key.key()).unwrap());
+    }
+
+    #[test]
+    fn compare_hash() {
+        let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+        let key = manager.generate(Environment::production()).unwrap();
+        let new_secret = ApiKey::new(SecureString::from(key.key().expose_secret()))
+            .into_hashed_with_salt(manager.hasher(), key.expose_hash().salt())
+            .unwrap();
+
+        assert_eq!(new_secret.expose_hash(), key.expose_hash());
     }
 }

@@ -14,7 +14,7 @@ fn test_future_expiry_is_valid() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -30,7 +30,7 @@ fn test_past_expiry_is_expired() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -46,7 +46,7 @@ fn test_expiry_at_current_time() {
         .unwrap();
 
     // Should be Valid since verification uses: now <= expiry
-    let status = manager.verify(key.key(), key.hash()).unwrap();
+    let status = manager.verify(key.key(), key.expose_hash().hash()).unwrap();
     assert!(
         status == KeyStatus::Valid || status == KeyStatus::Invalid,
         "Status at boundary should be Valid or Expired depending on timing"
@@ -61,7 +61,7 @@ fn test_no_expiry_never_expires() {
 
     // Verify immediately
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -81,7 +81,9 @@ fn test_expired_key_wrong_hash() {
 
     // Verify expired key against wrong hash - should be Invalid, not Expired
     assert_eq!(
-        manager.verify(expired_key.key(), other_key.hash()).unwrap(),
+        manager
+            .verify(expired_key.key(), other_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -100,7 +102,7 @@ fn test_short_expiry() {
 
     // Should be valid immediately after creation
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 
@@ -109,7 +111,7 @@ fn test_short_expiry() {
 
     // Should now be expired
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -125,7 +127,7 @@ fn test_long_expiry() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -151,24 +153,24 @@ fn test_expiry_across_environments() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(dev_valid.key(), dev_valid.hash()).unwrap(),
+        manager.verify(dev_valid.key(), dev_valid.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
         manager
-            .verify(test_expired.key(), test_expired.hash())
+            .verify(test_expired.key(), test_expired.expose_hash().hash())
             .unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
         manager
-            .verify(staging_valid.key(), staging_valid.hash())
+            .verify(staging_valid.key(), staging_valid.expose_hash().hash())
             .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
         manager
-            .verify(live_expired.key(), live_expired.hash())
+            .verify(live_expired.key(), live_expired.expose_hash().hash())
             .unwrap(),
         KeyStatus::Invalid
     );
@@ -185,7 +187,7 @@ fn test_expiry_embedded_in_key() {
         .unwrap();
 
     // Store hash separately
-    let hash_str = key.hash().to_string();
+    let hash_str = key.expose_hash().hash().to_string();
 
     // Verify using the stored hash - expiry should still work
     assert_eq!(
@@ -221,12 +223,14 @@ fn test_expiry_without_checksum() {
     // Expiry works independently of checksum
     assert_eq!(
         manager
-            .verify(expired_key.key(), expired_key.hash())
+            .verify(expired_key.key(), expired_key.expose_hash().hash())
             .unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        manager.verify(valid_key.key(), valid_key.hash()).unwrap(),
+        manager
+            .verify(valid_key.key(), valid_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 }
@@ -250,19 +254,22 @@ fn test_multiple_keys_same_expiry() {
     // All keys should be unique
     assert_ne!(key1.key().expose_secret(), key2.key().expose_secret());
     assert_ne!(key2.key().expose_secret(), key3.key().expose_secret());
-    assert_ne!(key1.hash().to_string(), key2.hash().to_string());
+    assert_ne!(
+        key1.expose_hash().hash().to_string(),
+        key2.expose_hash().hash().to_string()
+    );
 
     // All should be valid
     assert_eq!(
-        manager.verify(key1.key(), key1.hash()).unwrap(),
+        manager.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(key2.key(), key2.hash()).unwrap(),
+        manager.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
-        manager.verify(key3.key(), key3.hash()).unwrap(),
+        manager.verify(key3.key(), key3.expose_hash().hash()).unwrap(),
         KeyStatus::Valid
     );
 }
@@ -279,7 +286,7 @@ fn test_expired_with_valid_checksum() {
 
     // Key has valid checksum and correct hash, but is expired
     assert_eq!(
-        manager.verify(key.key(), key.hash()).unwrap(),
+        manager.verify(key.key(), key.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
 }
@@ -303,7 +310,7 @@ fn test_expiry_timestamp_round_trip() {
             .unwrap();
 
         // Verify doesn't panic and returns a valid status
-        let status = manager.verify(key.key(), key.hash()).unwrap();
+        let status = manager.verify(key.key(), key.expose_hash().hash()).unwrap();
         assert!(
             matches!(status, KeyStatus::Valid | KeyStatus::Invalid),
             "Expected Valid or Expired, got {:?}",
@@ -328,12 +335,14 @@ fn test_expiry_with_high_security() {
         .unwrap();
 
     assert_eq!(
-        manager.verify(valid_key.key(), valid_key.hash()).unwrap(),
+        manager
+            .verify(valid_key.key(), valid_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
     assert_eq!(
         manager
-            .verify(expired_key.key(), expired_key.hash())
+            .verify(expired_key.key(), expired_key.expose_hash().hash())
             .unwrap(),
         KeyStatus::Invalid
     );
@@ -359,7 +368,7 @@ fn test_corrupted_expiry_returns_invalid() {
         let corrupted_key = SecureString::from(corrupted);
 
         // Should return Invalid (or Expired), not panic
-        let result = manager.verify(&corrupted_key, key.hash());
+        let result = manager.verify(&corrupted_key, key.expose_hash().hash());
         assert!(result.is_ok(), "Corrupted expiry should not cause panic");
     }
 }
@@ -377,7 +386,9 @@ fn test_trial_key_lifecycle() {
 
     // Day 1: Valid
     assert_eq!(
-        manager.verify(trial_key.key(), trial_key.hash()).unwrap(),
+        manager
+            .verify(trial_key.key(), trial_key.expose_hash().hash())
+            .unwrap(),
         KeyStatus::Valid
     );
 
@@ -390,7 +401,7 @@ fn test_trial_key_lifecycle() {
     // After expiry: Expired
     assert_eq!(
         manager
-            .verify(expired_key.key(), expired_key.hash())
+            .verify(expired_key.key(), expired_key.expose_hash().hash())
             .unwrap(),
         KeyStatus::Invalid
     );
@@ -412,11 +423,11 @@ fn test_expiry_with_custom_prefix() {
         .unwrap();
 
     assert_eq!(
-        manager1.verify(key1.key(), key1.hash()).unwrap(),
+        manager1.verify(key1.key(), key1.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
     assert_eq!(
-        manager2.verify(key2.key(), key2.hash()).unwrap(),
+        manager2.verify(key2.key(), key2.expose_hash().hash()).unwrap(),
         KeyStatus::Invalid
     );
 }
