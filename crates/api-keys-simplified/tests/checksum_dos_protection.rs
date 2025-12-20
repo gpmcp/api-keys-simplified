@@ -74,6 +74,7 @@ fn test_valid_checksum_proceeds_to_argon2() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_dos_protection_comparison() {
     // Compare DoS resistance: with vs without checksum
     let with_checksum = ApiKeyManagerV0::init(

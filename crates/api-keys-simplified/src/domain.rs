@@ -32,9 +32,19 @@ pub struct ApiKeyManagerV0 {
 }
 
 // FIXME: Need better naming
-/// Hash can be safely stored as String
-/// in memory without having to worry about
-/// zeroizing. Hashes are not secrets and are meant to be stored.
+/// Contains the Argon2 hash and the salt used to generate it.
+///
+/// The hash can be safely stored in your database without special security measures
+/// since it's already cryptographically hashed. However, avoid unnecessary cloning
+/// or logging to minimize exposure.
+///
+/// # Fields
+///
+/// - `hash`: The Argon2id PHC-formatted hash string (e.g., "$argon2id$v=19$m=...")
+/// - `salt`: The base64-encoded salt used during hashing (32 bytes when encoded)
+///
+/// Both fields can be accessed using the auto-generated getter methods `hash()` and `salt()`
+/// provided by the `Getters` derive macro.
 #[derive(Debug, Getters, PartialEq)]
 pub struct Hash {
     hash: String,
@@ -194,7 +204,7 @@ impl ApiKeyManagerV0 {
     /// # use std::time::Duration;
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
-    /// match manager.verify(key.key(), key.expose_hash())? {
+    /// match manager.verify(key.key(), key.expose_hash().hash())? {
     ///     KeyStatus::Valid => { /* grant access */ },
     ///     KeyStatus::Invalid => { /* reject - wrong key or expired */ },
     /// }
@@ -239,9 +249,18 @@ impl<T> ApiKey<T> {
 }
 
 impl ApiKey<NoHash> {
+    /// Creates a new API key without a hash.
+    ///
+    /// This is typically used internally before converting to a hashed key.
     pub fn new(key: SecureString) -> ApiKey<NoHash> {
         ApiKey { key, hash: NoHash }
     }
+
+    /// Converts this unhashed key into a hashed key by generating a new random salt
+    /// and computing the Argon2 hash.
+    ///
+    /// This method is automatically called by `ApiKeyManagerV0::generate()` and
+    /// `ApiKeyManagerV0::generate_with_expiry()`.
     pub fn into_hashed(self, hasher: &KeyHasher) -> Result<ApiKey<Hash>> {
         let (hash, salt) = hasher.hash(&self.key)?;
 
@@ -250,6 +269,34 @@ impl ApiKey<NoHash> {
             hash: Hash { hash, salt },
         })
     }
+
+    /// Converts this unhashed key into a hashed key using a specific salt.
+    ///
+    /// This is useful when you need to regenerate the same hash from the same key,
+    /// for example in testing or when verifying hash consistency.
+    ///
+    /// # Parameters
+    ///
+    /// * `hasher` - The key hasher to use
+    /// * `salt` - Base64-encoded salt string (32 bytes when decoded)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # use api_keys_simplified::{SecureString, ApiKey};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// let key1 = manager.generate(Environment::production()).unwrap();
+    ///
+    /// // Regenerate hash with the same salt
+    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+    ///     .into_hashed_with_salt(manager.hasher(), key1.expose_hash().salt())
+    ///     .unwrap();
+    ///
+    /// // Both hashes should be identical
+    /// assert_eq!(key1.expose_hash(), key2.expose_hash());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn into_hashed_with_salt(self, hasher: &KeyHasher, salt: &str) -> Result<ApiKey<Hash>> {
         let hash = hasher.hash_with_salt(&self.key, salt)?;
 
@@ -261,21 +308,53 @@ impl ApiKey<NoHash> {
             },
         })
     }
+
+    /// Consumes the API key and returns the underlying secure string.
     pub fn into_key(self) -> SecureString {
         self.key
     }
 }
 
 impl ApiKey<Hash> {
-    /// Returns hash.
-    /// SECURITY:
-    /// Although it's safe to store hash,
-    /// do NOT make unnecessary clones
-    /// and avoid logging the hash.
+    /// Returns a reference to the hash and salt.
+    ///
+    /// The returned `Hash` struct contains both the Argon2 hash string and the
+    /// base64-encoded salt used to generate it. The hash should be stored in your
+    /// database for later verification.
+    ///
+    /// # Accessing Fields
+    ///
+    /// Use the auto-generated getter methods:
+    /// - `.hash()` - Returns the Argon2 hash string as `&str`
+    /// - `.salt()` - Returns the base64-encoded salt as `&str`
+    ///
+    /// # Security Note
+    ///
+    /// Although it's safe to store the hash, avoid making unnecessary clones
+    /// or logging the hash to minimize exposure.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// # let api_key = manager.generate(Environment::production()).unwrap();
+    /// // Get the hash for storage
+    /// let hash_struct = api_key.expose_hash();
+    ///
+    /// // Access the hash string for database storage
+    /// let hash_str: &str = hash_struct.hash();
+    /// println!("Store this hash: {}", hash_str);
+    ///
+    /// // Access the salt (if needed for hash regeneration)
+    /// let salt: &str = hash_struct.salt();
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn expose_hash(&self) -> &Hash {
         &self.hash
     }
 
+    /// Consumes the API key and returns the underlying secure string.
     pub fn into_key(self) -> SecureString {
         self.key
     }

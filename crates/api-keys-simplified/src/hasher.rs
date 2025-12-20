@@ -19,6 +19,29 @@ impl KeyHasher {
         Self { config }
     }
     
+    /// Hashes an API key using Argon2id with a randomly generated salt.
+    ///
+    /// Returns a tuple containing:
+    /// - The Argon2id PHC-formatted hash string
+    /// - The base64-encoded salt (32 bytes encoded)
+    ///
+    /// Each call generates a new random salt, so hashing the same key multiple
+    /// times will produce different hashes. To reproduce the same hash, use
+    /// `hash_with_salt()` with the original salt.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// # let key = manager.generate(Environment::production()).unwrap();
+    /// // Hashing is done automatically when generating keys
+    /// // The hash and salt are stored together in the returned ApiKey
+    /// let hash = key.expose_hash();
+    /// println!("Hash: {}", hash.hash());
+    /// println!("Salt: {}", hash.salt());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn hash(&self, key: &SecureString) -> Result<(String, String)> {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 32];
@@ -33,6 +56,30 @@ impl KeyHasher {
         Ok((hash, salt.as_str().to_string()))
     }
 
+    /// Hashes an API key using Argon2id with a specific salt.
+    ///
+    /// This is useful when you need to regenerate the same hash from the same key,
+    /// ensuring deterministic hashing for verification or testing purposes.
+    ///
+    /// # Parameters
+    ///
+    /// * `key` - The API key to hash
+    /// * `salt_str` - Base64-encoded salt string (must be 32 bytes when decoded)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, SecureString, ApiKey};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// # let key1 = manager.generate(Environment::production()).unwrap();
+    /// // Regenerate the same hash using the same salt
+    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+    ///     .into_hashed_with_salt(manager.hasher(), key1.expose_hash().salt())
+    ///     .unwrap();
+    ///
+    /// assert_eq!(key1.expose_hash(), key2.expose_hash());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn hash_with_salt(&self, key: &SecureString, salt_str: &str) -> Result<String> {
         let salt = SaltString::from_b64(salt_str)
             .map_err(|e| OperationError::Hashing(format!("Invalid salt: {}", e)))?;
