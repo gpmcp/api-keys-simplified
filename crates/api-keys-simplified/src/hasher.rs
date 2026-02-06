@@ -21,13 +21,21 @@ impl KeyHasher {
 
     /// Hashes an API key using Argon2id with a randomly generated salt.
     ///
-    /// Returns a tuple containing:
-    /// - The Argon2id PHC-formatted hash string
-    /// - The base64-encoded salt (32 bytes encoded)
+    /// Returns the Argon2id PHC-formatted hash string which includes:
+    /// - Algorithm identifier (argon2id)
+    /// - Version
+    /// - Parameters (memory cost, time cost, parallelism)
+    /// - Salt (base64-encoded, embedded in the hash string)
+    /// - Hash output (base64-encoded)
     ///
     /// Each call generates a new random salt, so hashing the same key multiple
     /// times will produce different hashes. To reproduce the same hash, use
-    /// `hash_with_salt()` with the original salt.
+    /// `hash_with_phc()` with the original PHC hash string to extract and reuse the salt.
+    ///
+    /// # PHC Format
+    ///
+    /// The returned string follows the PHC format:
+    /// `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`
     ///
     /// # Example
     ///
@@ -36,13 +44,12 @@ impl KeyHasher {
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// // Hashing is done automatically when generating keys
-    /// // The hash and salt are stored together in the returned ApiKey
+    /// // The hash is stored in PHC format in the returned ApiKey
     /// let hash = key.expose_hash();
     /// println!("Hash: {}", hash.hash());
-    /// println!("Salt: {}", hash.salt());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn hash(&self, key: &SecureString) -> Result<(String, String)> {
+    pub fn hash(&self, key: &SecureString) -> Result<String> {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 32];
         getrandom::fill(&mut salt_bytes)
@@ -51,20 +58,19 @@ impl KeyHasher {
         let salt = SaltString::encode_b64(&salt_bytes)
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
-        let hash = self.hash_with_salt_string(key, &salt)?;
-
-        Ok((hash, salt.as_str().to_string()))
+        self.hash_with_salt_string(key, &salt)
     }
 
-    /// Hashes an API key using Argon2id with a specific salt.
+    /// Hashes an API key using Argon2id with a salt extracted from a PHC hash string.
     ///
     /// This is useful when you need to regenerate the same hash from the same key,
-    /// ensuring deterministic hashing for verification or testing purposes.
+    /// ensuring deterministic hashing for verification or testing purposes. The salt
+    /// is extracted from the provided PHC-formatted hash string.
     ///
     /// # Parameters
     ///
     /// * `key` - The API key to hash
-    /// * `salt_str` - Base64-encoded salt string (must be 32 bytes when decoded)
+    /// * `phc_hash` - An existing PHC-formatted hash string to extract the salt from
     ///
     /// # Example
     ///
@@ -72,19 +78,30 @@ impl KeyHasher {
     /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, SecureString, ApiKey};
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key1 = manager.generate(Environment::production()).unwrap();
-    /// // Regenerate the same hash using the same salt
+    /// // Regenerate the same hash using the salt from the original hash
     /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
-    ///     .into_hashed_with_salt(manager.hasher(), key1.expose_hash().salt())
+    ///     .into_hashed_with_phc(manager.hasher(), key1.expose_hash().hash())
     ///     .unwrap();
     ///
     /// assert_eq!(key1.expose_hash(), key2.expose_hash());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn hash_with_salt(&self, key: &SecureString, salt_str: &str) -> Result<String> {
-        let salt = SaltString::from_b64(salt_str)
-            .map_err(|e| OperationError::Hashing(format!("Invalid salt: {}", e)))?;
+    pub fn hash_with_phc(&self, key: &SecureString, phc_hash: &str) -> Result<String> {
+        use argon2::password_hash::PasswordHash;
 
-        self.hash_with_salt_string(key, &salt)
+        // Parse the PHC hash to extract the salt
+        let parsed = PasswordHash::new(phc_hash)
+            .map_err(|e| OperationError::Hashing(format!("Invalid PHC hash: {}", e)))?;
+
+        let salt = parsed
+            .salt
+            .ok_or_else(|| OperationError::Hashing("PHC hash missing salt".to_string()))?;
+
+        // Convert the Salt to SaltString
+        let salt_str = SaltString::from_b64(salt.as_str())
+            .map_err(|e| OperationError::Hashing(format!("Invalid salt in PHC hash: {}", e)))?;
+
+        self.hash_with_salt_string(key, &salt_str)
     }
 
     fn hash_with_salt_string(&self, key: &SecureString, salt: &SaltString) -> Result<String> {
@@ -118,12 +135,12 @@ mod tests {
         let config = HashConfig::default();
         let hasher = KeyHasher::new(config);
 
-        let (hash1, salt1) = hasher.hash(&key).unwrap();
-        let (hash2, salt2) = hasher.hash(&key).unwrap();
+        let hash1 = hasher.hash(&key).unwrap();
+        let hash2 = hasher.hash(&key).unwrap();
 
-        assert_ne!(hash1, hash2); // Different salts
-        assert_ne!(salt1, salt2); // Different salts
+        assert_ne!(hash1, hash2); // Different salts embedded in PHC format
         assert!(hash1.starts_with("$argon2id$"));
+        assert!(hash2.starts_with("$argon2id$"));
     }
 
     #[test]
@@ -131,10 +148,10 @@ mod tests {
         let key = SecureString::from("test_key".to_string());
 
         let balanced_hasher = KeyHasher::new(HashConfig::balanced());
-        let (balanced_hash, _) = balanced_hasher.hash(&key).unwrap();
+        let balanced_hash = balanced_hasher.hash(&key).unwrap();
 
         let secure_hasher = KeyHasher::new(HashConfig::high_security());
-        let (secure_hash, _) = secure_hasher.hash(&key).unwrap();
+        let secure_hash = secure_hasher.hash(&key).unwrap();
 
         assert!(!balanced_hash.is_empty());
         assert!(!secure_hash.is_empty());
@@ -146,14 +163,15 @@ mod tests {
         let config = HashConfig::default();
         let hasher = KeyHasher::new(config);
 
-        // Get a salt from the first hash
-        let (_hash, salt) = hasher.hash(&key).unwrap();
+        // Get a PHC hash from the first hash
+        let phc_hash = hasher.hash(&key).unwrap();
 
-        // Use the same salt to generate two hashes
-        let hash1 = hasher.hash_with_salt(&key, &salt).unwrap();
-        let hash2 = hasher.hash_with_salt(&key, &salt).unwrap();
+        // Use the same salt (extracted from PHC) to generate two hashes
+        let hash1 = hasher.hash_with_phc(&key, &phc_hash).unwrap();
+        let hash2 = hasher.hash_with_phc(&key, &phc_hash).unwrap();
 
         assert_eq!(hash1, hash2); // Same salt produces same hash
+        assert_eq!(hash1, phc_hash); // Should match original hash
         assert!(hash1.starts_with("$argon2id$"));
     }
 }

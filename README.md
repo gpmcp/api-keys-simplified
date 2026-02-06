@@ -29,9 +29,9 @@ let api_key = manager.generate(Environment::production())?;
 // Show to user once (they must save it)
 println!("API Key: {}", api_key.key().expose_secret());
 
-// Store both hash AND salt in database (required for hash regeneration)
+// Store hash in database (PHC format includes salt)
 let hash_data = api_key.expose_hash();
-database.save(hash_data.hash(), hash_data.salt());
+database.save(hash_data.hash());
 
 // Later: verify incoming key (checksum checked first)
 let status = manager.verify(provided_key, stored_hash)?;
