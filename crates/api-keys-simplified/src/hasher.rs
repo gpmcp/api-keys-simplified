@@ -88,14 +88,15 @@ impl KeyHasher {
     /// ```
     pub fn hash_with_phc(&self, key: &SecureString, phc_hash: &str) -> Result<String> {
         use argon2::password_hash::PasswordHash;
-        
+
         // Parse the PHC hash to extract the salt
         let parsed = PasswordHash::new(phc_hash)
             .map_err(|e| OperationError::Hashing(format!("Invalid PHC hash: {}", e)))?;
-        
-        let salt = parsed.salt
+
+        let salt = parsed
+            .salt
             .ok_or_else(|| OperationError::Hashing("PHC hash missing salt".to_string()))?;
-        
+
         // Convert the Salt to SaltString
         let salt_str = SaltString::from_b64(salt.as_str())
             .map_err(|e| OperationError::Hashing(format!("Invalid salt in PHC hash: {}", e)))?;
