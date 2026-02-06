@@ -34,9 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Show key to user ONCE (they must save it)
     println!("API Key: {}", api_key.key().expose_secret());
 
-    // 4. Store both hash AND salt in database (required for hash verification)
+    // 4. Store hash in database (PHC format includes salt)
     let hash_data = api_key.expose_hash();
-    database::save_user_key(user_id, hash_data.hash(), hash_data.salt())?;
+    database::save_user_key(user_id, hash_data.hash())?;
 
     // 5. Later: verify an incoming key (checksum validated first!)
     let provided_key_str = request.headers().get("Authorization")?.replace("Bearer ", "");
@@ -167,9 +167,9 @@ println!("{:?}", key);  // Prints: ApiKey { key: "[REDACTED]", ... }
 // ✅ Show keys only once
 display_to_user_once(key.key().expose_secret());
 
-// Store both hash and salt (salt is needed for hash regeneration)
+// Store hash (PHC format includes salt)
 let hash_data = key.expose_hash();
-db.save(hash_data.hash(), hash_data.salt());
+db.save(hash_data.hash());
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
@@ -182,7 +182,7 @@ fn rotate_key(manager: &ApiKeyManagerV0, user_id: u64) -> Result<ApiKey<Hash>, B
     db.revoke_old_keys(user_id)?;
     
     let hash_data = new_key.expose_hash();
-    db.save_new_key(user_id, hash_data.hash(), hash_data.salt())?;
+    db.save_new_key(user_id, hash_data.hash())?;
     Ok(new_key)
 }
 
@@ -191,7 +191,7 @@ let trial_expiry = Utc::now() + Duration::days(7);
 let trial_key = manager.generate_with_expiry(Environment::production(), trial_expiry)?;
 
 let hash_data = trial_key.expose_hash();
-db.save(user_id, hash_data.hash(), hash_data.salt())?;
+db.save(user_id, hash_data.hash())?;
 
 // ✅ Implement key revocation for compromised keys
 fn revoke_key(user_id: u64, key_hash: &str) -> Result<(), Box<dyn std::error::Error>> {

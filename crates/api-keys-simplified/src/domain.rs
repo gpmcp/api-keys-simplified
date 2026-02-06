@@ -32,23 +32,31 @@ pub struct ApiKeyManagerV0 {
 }
 
 // FIXME: Need better naming
-/// Contains the Argon2 hash and the salt used to generate it.
+/// Contains the Argon2 hash in PHC format.
 ///
 /// The hash can be safely stored in your database without special security measures
 /// since it's already cryptographically hashed. However, avoid unnecessary cloning
 /// or logging to minimize exposure.
 ///
-/// # Fields
+/// # PHC Format
 ///
-/// - `hash`: The Argon2id PHC-formatted hash string (e.g., "$argon2id$v=19$m=...")
-/// - `salt`: The base64-encoded salt used during hashing (32 bytes when encoded)
+/// The hash is stored in PHC (Password Hashing Competition) format which includes:
+/// - Algorithm identifier (argon2id)
+/// - Version
+/// - Parameters (memory cost, time cost, parallelism)
+/// - Salt (base64-encoded, embedded in the hash string)
+/// - Hash output (base64-encoded)
 ///
-/// Both fields can be accessed using the auto-generated getter methods `hash()` and `salt()`
+/// Example: `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`
+///
+/// The salt is embedded within the PHC string and can be extracted if needed using
+/// the `password_hash` crate's `PasswordHash::new()` method.
+///
+/// The hash can be accessed using the auto-generated getter method `hash()`
 /// provided by the `Getters` derive macro.
 #[derive(Debug, Getters, PartialEq)]
 pub struct Hash {
     hash: String,
-    salt: String,
 }
 
 #[derive(Debug)]
@@ -78,7 +86,7 @@ impl ApiKeyManagerV0 {
 
         // Generate dummy key and its hash for timing attack protection
         let dummy_key = generator.dummy_key().clone();
-        let (dummy_hash, _salt) = hasher.hash(&dummy_key)?;
+        let dummy_hash = hasher.hash(&dummy_key)?;
 
         let validator = KeyValidator::new(include_checksum, dummy_key, dummy_hash)?;
 
@@ -262,23 +270,24 @@ impl ApiKey<NoHash> {
     /// This method is automatically called by `ApiKeyManagerV0::generate()` and
     /// `ApiKeyManagerV0::generate_with_expiry()`.
     pub fn into_hashed(self, hasher: &KeyHasher) -> Result<ApiKey<Hash>> {
-        let (hash, salt) = hasher.hash(&self.key)?;
+        let hash = hasher.hash(&self.key)?;
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash { hash, salt },
+            hash: Hash { hash },
         })
     }
 
-    /// Converts this unhashed key into a hashed key using a specific salt.
+    /// Converts this unhashed key into a hashed key using a specific PHC hash string.
     ///
     /// This is useful when you need to regenerate the same hash from the same key,
-    /// for example in testing or when verifying hash consistency.
+    /// for example in testing or when verifying hash consistency. The salt is extracted
+    /// from the provided PHC hash string.
     ///
     /// # Parameters
     ///
     /// * `hasher` - The key hasher to use
-    /// * `salt` - Base64-encoded salt string (32 bytes when decoded)
+    /// * `phc_hash` - An existing PHC-formatted hash string to extract the salt from
     ///
     /// # Example
     ///
@@ -288,24 +297,21 @@ impl ApiKey<NoHash> {
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// let key1 = manager.generate(Environment::production()).unwrap();
     ///
-    /// // Regenerate hash with the same salt
+    /// // Regenerate hash with the same salt (extracted from the PHC hash)
     /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
-    ///     .into_hashed_with_salt(manager.hasher(), key1.expose_hash().salt())
+    ///     .into_hashed_with_phc(manager.hasher(), key1.expose_hash().hash())
     ///     .unwrap();
     ///
     /// // Both hashes should be identical
     /// assert_eq!(key1.expose_hash(), key2.expose_hash());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn into_hashed_with_salt(self, hasher: &KeyHasher, salt: &str) -> Result<ApiKey<Hash>> {
-        let hash = hasher.hash_with_salt(&self.key, salt)?;
+    pub fn into_hashed_with_phc(self, hasher: &KeyHasher, phc_hash: &str) -> Result<ApiKey<Hash>> {
+        let hash = hasher.hash_with_phc(&self.key, phc_hash)?;
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash {
-                hash,
-                salt: salt.to_string(),
-            },
+            hash: Hash { hash },
         })
     }
 
@@ -316,17 +322,25 @@ impl ApiKey<NoHash> {
 }
 
 impl ApiKey<Hash> {
-    /// Returns a reference to the hash and salt.
+    /// Returns a reference to the hash.
     ///
-    /// The returned `Hash` struct contains both the Argon2 hash string and the
-    /// base64-encoded salt used to generate it. The hash should be stored in your
+    /// The returned `Hash` struct contains the Argon2 hash string in PHC format.
+    /// The PHC format embeds all necessary information including the salt, algorithm
+    /// parameters, and hash output. This single string should be stored in your
     /// database for later verification.
     ///
     /// # Accessing Fields
     ///
-    /// Use the auto-generated getter methods:
-    /// - `.hash()` - Returns the Argon2 hash string as `&str`
-    /// - `.salt()` - Returns the base64-encoded salt as `&str`
+    /// Use the auto-generated getter method:
+    /// - `.hash()` - Returns the PHC-formatted hash string as `&str`
+    ///
+    /// # PHC Format
+    ///
+    /// The hash string follows the PHC format:
+    /// `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`
+    ///
+    /// The salt is embedded in the hash string and can be extracted if needed using
+    /// the `password_hash` crate's `PasswordHash::new()` method.
     ///
     /// # Security Note
     ///
@@ -345,9 +359,6 @@ impl ApiKey<Hash> {
     /// // Access the hash string for database storage
     /// let hash_str: &str = hash_struct.hash();
     /// println!("Store this hash: {}", hash_str);
-    ///
-    /// // Access the salt (if needed for hash regeneration)
-    /// let salt: &str = hash_struct.salt();
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn expose_hash(&self) -> &Hash {
@@ -419,7 +430,7 @@ mod tests {
         let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
         let key = manager.generate(Environment::production()).unwrap();
         let new_secret = ApiKey::new(SecureString::from(key.key().expose_secret()))
-            .into_hashed_with_salt(manager.hasher(), key.expose_hash().salt())
+            .into_hashed_with_phc(manager.hasher(), key.expose_hash().hash())
             .unwrap();
 
         assert_eq!(new_secret.expose_hash(), key.expose_hash());
