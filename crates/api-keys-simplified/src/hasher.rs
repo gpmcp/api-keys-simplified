@@ -39,8 +39,8 @@ impl KeyHasher {
     /// - Hash output (base64-encoded)
     ///
     /// Each call generates a new random salt, so hashing the same key multiple
-    /// times will produce different PHC hashes but the same key ID. To reproduce 
-    /// the same hash, use `hash_with_phc()` with the original PHC hash string to 
+    /// times will produce different PHC hashes but the same key ID. To reproduce
+    /// the same hash, use `hash_with_phc()` with the original PHC hash string to
     /// extract and reuse the salt.
     ///
     /// # PHC Format
@@ -64,7 +64,7 @@ impl KeyHasher {
     pub fn hash(&self, key: &SecureString) -> Result<(String, String)> {
         // Generate stable key ID from the key itself using BLAKE3
         let key_id = self.generate_key_id(key);
-        
+
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 32];
         getrandom::fill(&mut salt_bytes)
@@ -74,10 +74,10 @@ impl KeyHasher {
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         let phc_hash = self.hash_with_salt_string(key, &salt)?;
-        
+
         Ok((key_id, phc_hash))
     }
-    
+
     /// Generates a stable, deterministic key ID from an API key.
     ///
     /// Uses BLAKE3 hash (truncated to 16 bytes) to create a unique identifier
@@ -111,11 +111,11 @@ impl KeyHasher {
     /// ```
     pub fn generate_key_id(&self, key: &SecureString) -> String {
         use blake3::Hasher;
-        
+
         let mut hasher = Hasher::new();
         hasher.update(key.expose_secret().as_bytes());
         let hash = hasher.finalize();
-        
+
         // Use first 16 bytes (128 bits) for the key ID
         // This provides enough uniqueness while keeping it reasonably short
         // blake3's to_hex() returns 64 hex chars (32 bytes), we take first 32 (16 bytes)
@@ -153,23 +153,24 @@ impl KeyHasher {
     pub fn hash_with_phc(&self, key: &SecureString, phc_hash: &str) -> Result<(String, String)> {
         // Generate stable key ID (same as in hash() method)
         let key_id = self.generate_key_id(key);
-        
+
         // Parse the PHC hash to extract the salt
         let parsed = PasswordHash::new(phc_hash)
             .map_err(|e| OperationError::Hashing(format!("Invalid PHC hash: {}", e)))?;
-        
-        let salt = parsed.salt
+
+        let salt = parsed
+            .salt
             .ok_or_else(|| OperationError::Hashing("PHC hash missing salt".to_string()))?;
-        
+
         // Convert the Salt to SaltString
         let salt_str = SaltString::from_b64(salt.as_str())
             .map_err(|e| OperationError::Hashing(format!("Invalid salt in PHC hash: {}", e)))?;
 
         let phc_hash_result = self.hash_with_salt_string(key, &salt_str)?;
-        
+
         Ok((key_id, phc_hash_result))
     }
-    
+
     fn hash_with_salt_string(&self, key: &SecureString, salt: &SaltString) -> Result<String> {
         let params = Params::new(
             *self.config.memory_cost(),
