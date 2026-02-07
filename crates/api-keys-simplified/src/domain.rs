@@ -485,4 +485,59 @@ mod tests {
 
         assert_eq!(new_secret.expose_hash(), key.expose_hash());
     }
+
+    #[test]
+    fn test_extract_key_id() {
+        let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+        let key1 = manager.generate(Environment::production()).unwrap();
+        let key2 = manager.generate(Environment::production()).unwrap();
+
+        let id1 = manager.extract_key_id(key1.key());
+        
+        // Matches stored key_id
+        assert_eq!(id1, *key1.expose_hash().key_id());
+        
+        // Deterministic: multiple extractions match
+        assert_eq!(id1, manager.extract_key_id(key1.key()));
+        
+        // Unique: different keys have different IDs
+        assert_ne!(id1, manager.extract_key_id(key2.key()));
+        
+        // Format: 32 hex characters
+        assert_eq!(id1.len(), 32);
+        assert!(id1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_key_id_stability_across_rehashing() {
+        let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+        let key1 = manager.generate(Environment::production()).unwrap();
+        
+        // Rehash with new salt
+        let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+            .into_hashed(manager.hasher())
+            .unwrap();
+        
+        // Key ID stays the same, hash changes
+        assert_eq!(key1.expose_hash().key_id(), key2.expose_hash().key_id());
+        assert_ne!(key1.expose_hash().hash(), key2.expose_hash().hash());
+    }
+
+    #[test]
+    fn test_key_id_database_lookup() {
+        let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+        let api_key = manager.generate(Environment::production()).unwrap();
+        
+        // Simulate: store in database
+        let stored_key_id = api_key.expose_hash().key_id().to_string();
+        let stored_hash = api_key.expose_hash().hash().to_string();
+        
+        // Simulate: incoming request
+        let incoming_key = SecureString::from(api_key.key().expose_secret());
+        let lookup_key_id = manager.extract_key_id(&incoming_key);
+        
+        // Fast lookup by key_id, then verify
+        assert_eq!(lookup_key_id, stored_key_id);
+        assert_eq!(manager.verify(&incoming_key, &stored_hash).unwrap(), KeyStatus::Valid);
+    }
 }

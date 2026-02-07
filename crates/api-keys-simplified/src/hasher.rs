@@ -247,4 +247,42 @@ mod tests {
         assert_eq!(hash1, phc_hash); // Should match original hash
         assert!(hash1.starts_with("$argon2id$"));
     }
+
+    #[test]
+    fn test_key_id_properties() {
+        let hasher = KeyHasher::new(HashConfig::default());
+        let key1 = SecureString::from("sk-live-key1".to_string());
+        let key2 = SecureString::from("sk-live-key2".to_string());
+
+        // Determinism: same key always produces same ID
+        let id1a = hasher.generate_key_id(&key1);
+        let id1b = hasher.generate_key_id(&key1);
+        assert_eq!(id1a, id1b);
+
+        // Format: 32 hex characters
+        assert_eq!(id1a.len(), 32);
+        assert!(id1a.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Uniqueness: different keys produce different IDs
+        let id2 = hasher.generate_key_id(&key2);
+        assert_ne!(id1a, id2);
+    }
+
+    #[test]
+    fn test_key_id_stability_with_hashing() {
+        let key = SecureString::from("sk-live-test".to_string());
+        let hasher = KeyHasher::new(HashConfig::default());
+
+        let (key_id1, hash1) = hasher.hash(&key).unwrap();
+        let (key_id2, hash2) = hasher.hash(&key).unwrap();
+
+        // Key ID stays the same
+        assert_eq!(key_id1, key_id2);
+        // But hashes differ (different salts)
+        assert_ne!(hash1, hash2);
+
+        // hash_with_phc produces matching key ID
+        let (key_id3, _) = hasher.hash_with_phc(&key, &hash1).unwrap();
+        assert_eq!(key_id1, key_id3);
+    }
 }
