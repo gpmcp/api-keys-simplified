@@ -32,11 +32,20 @@ pub struct ApiKeyManagerV0 {
 }
 
 // FIXME: Need better naming
-/// Contains the Argon2 hash in PHC format.
+/// Contains the Argon2 hash in PHC format and a stable key identifier.
 ///
 /// The hash can be safely stored in your database without special security measures
 /// since it's already cryptographically hashed. However, avoid unnecessary cloning
 /// or logging to minimize exposure.
+///
+/// # Fields
+///
+/// - `key_id`: A stable, deterministic identifier derived from the API key itself.
+///   This ID never changes for the same key, making it perfect for database indexing
+///   and key lookups. Format: 32 hex characters (16 bytes of BLAKE3 hash).
+///
+/// - `hash`: The Argon2id hash in PHC format. This changes each time you hash the
+///   same key (due to random salt), but the key_id remains constant.
 ///
 /// # PHC Format
 ///
@@ -52,10 +61,16 @@ pub struct ApiKeyManagerV0 {
 /// The salt is embedded within the PHC string and can be extracted if needed using
 /// the `password_hash` crate's `PasswordHash::new()` method.
 ///
-/// The hash can be accessed using the auto-generated getter method `hash()`
+/// # Key ID vs Hash
+///
+/// - **Key ID**: Stable identifier, never changes for the same key
+/// - **Hash**: Changes each time you hash (due to different random salts)
+///
+/// Both fields can be accessed using the auto-generated getter methods `key_id()` and `hash()`
 /// provided by the `Getters` derive macro.
 #[derive(Debug, Getters, PartialEq)]
 pub struct Hash {
+    key_id: String,
     hash: String,
 }
 
@@ -86,7 +101,7 @@ impl ApiKeyManagerV0 {
 
         // Generate dummy key and its hash for timing attack protection
         let dummy_key = generator.dummy_key().clone();
-        let dummy_hash = hasher.hash(&dummy_key)?;
+        let (_dummy_key_id, dummy_hash) = hasher.hash(&dummy_key)?;
 
         let validator = KeyValidator::new(include_checksum, dummy_key, dummy_hash)?;
 
@@ -233,6 +248,41 @@ impl ApiKeyManagerV0 {
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
         self.generator.verify_checksum(key)
     }
+
+    /// Extracts a stable key ID from an API key.
+    ///
+    /// This generates a deterministic identifier from the API key using BLAKE3 hash.
+    /// The same key will always produce the same key ID, making it perfect for:
+    /// - Database lookups and indexing
+    /// - Key identification without exposing the full key
+    /// - Tracking key usage across hash rotations
+    ///
+    /// # Format
+    ///
+    /// Returns a 32-character hex string (16 bytes / 128 bits of BLAKE3 hash).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, SecureString};
+    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// // Extract key ID from an incoming API key (e.g., from Authorization header)
+    /// let provided_key = SecureString::from("sk-live-abc123def456...".to_string());
+    /// let key_id = manager.extract_key_id(&provided_key);
+    ///
+    /// // Use key_id for fast database lookup
+    /// // let stored_hash = database.find_by_key_id(&key_id)?;
+    /// // manager.verify(&provided_key, &stored_hash)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Security Note
+    ///
+    /// While the key ID is a one-way hash, it still uniquely identifies a key.
+    /// Treat it as sensitive data and don't expose it in public APIs or logs.
+    pub fn extract_key_id(&self, key: &SecureString) -> String {
+        self.hasher.generate_key_id(key)
+    }
 }
 
 impl<T> ApiKey<T> {
@@ -270,11 +320,11 @@ impl ApiKey<NoHash> {
     /// This method is automatically called by `ApiKeyManagerV0::generate()` and
     /// `ApiKeyManagerV0::generate_with_expiry()`.
     pub fn into_hashed(self, hasher: &KeyHasher) -> Result<ApiKey<Hash>> {
-        let hash = hasher.hash(&self.key)?;
+        let (key_id, hash) = hasher.hash(&self.key)?;
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash { hash },
+            hash: Hash { key_id, hash },
         })
     }
 
@@ -282,7 +332,7 @@ impl ApiKey<NoHash> {
     ///
     /// This is useful when you need to regenerate the same hash from the same key,
     /// for example in testing or when verifying hash consistency. The salt is extracted
-    /// from the provided PHC hash string.
+    /// from the provided PHC hash string, and the key ID is derived from the key itself.
     ///
     /// # Parameters
     ///
@@ -307,11 +357,11 @@ impl ApiKey<NoHash> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn into_hashed_with_phc(self, hasher: &KeyHasher, phc_hash: &str) -> Result<ApiKey<Hash>> {
-        let hash = hasher.hash_with_phc(&self.key, phc_hash)?;
+        let (key_id, hash) = hasher.hash_with_phc(&self.key, phc_hash)?;
 
         Ok(ApiKey {
             key: self.key,
-            hash: Hash { hash },
+            hash: Hash { key_id, hash },
         })
     }
 
