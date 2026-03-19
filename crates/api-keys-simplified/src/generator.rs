@@ -1,53 +1,32 @@
-use crate::config::ChecksumAlgo;
-use crate::token_parser::parse_token;
+//! Cryptographically secure API key generation.
+//!
+//! This module is responsible solely for generating API key strings with
+//! the correct format: `prefix[{sep}version]{sep}env{sep}base64[.expiry][.checksum]`.
+//! Checksum computation is delegated to the `checksum` module.
+
+use crate::checksum::{self, CHECKSUM_SEPARATOR};
 use crate::{
     config::{Environment, KeyConfig, KeyPrefix},
-    error::{Error, OperationError, Result},
-    ExposeSecret, SecureString,
+    error::{OperationError, Result},
+    SecureString,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
-use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
-
-// Prevent DoS: Validate input length before processing
-const MAX_KEY_LENGTH: usize = 512;
-const CHECKSUM_SEPARATOR: u8 = b'.';
 
 #[derive(Clone)]
 pub struct KeyGenerator {
     prefix: KeyPrefix,
     config: KeyConfig,
-    /// Dummy key for timing attack protection
-    dummy_key: SecureString,
 }
 
 impl KeyGenerator {
-    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> Result<KeyGenerator> {
-        // Generate a dummy key for timing attack protection
-        // This is used in verify_checksum when input is invalid
-        let dummy_generator = Self {
-            prefix: prefix.clone(),
-            config: config.clone(),
-            dummy_key: SecureString::from(String::new()), // Temporary placeholder
-        };
-
-        let dummy_key = dummy_generator.generate(Environment::Production, None)?;
-
-        Ok(Self {
-            prefix,
-            config,
-            dummy_key,
-        })
+    /// Creates a new key generator. This is infallible since it only stores config.
+    pub fn new(prefix: KeyPrefix, config: KeyConfig) -> KeyGenerator {
+        Self { prefix, config }
     }
 
-    /// Returns a reference to the dummy key for timing attack protection.
-    /// This is used by KeyValidator to perform dummy work.
-    pub(crate) fn dummy_key(&self) -> &SecureString {
-        &self.dummy_key
-    }
-
-    fn generate_key(&self) -> Result<Zeroizing<Vec<u8>>> {
+    fn generate_random_bytes(&self) -> Result<Zeroizing<Vec<u8>>> {
         let mut random_bytes = Zeroizing::new(vec![0u8; *self.config.entropy_bytes()]);
         getrandom::fill(&mut random_bytes).map_err(|e| {
             OperationError::Generation(format!("Failed to get random bytes: {}", e))
@@ -61,7 +40,7 @@ impl KeyGenerator {
         environment: Environment,
         expiry: Option<DateTime<Utc>>,
     ) -> Result<SecureString> {
-        let bytes = self.generate_key()?;
+        let bytes = self.generate_random_bytes()?;
 
         // SECURITY FIX: Encode directly into a Zeroizing buffer to prevent intermediate
         // String allocation. Previously, encode() created an intermediate String that
@@ -76,24 +55,36 @@ impl KeyGenerator {
             .encode_slice(&bytes, &mut encoded)
             .map_err(|e| OperationError::Generation(format!("Base64 encoding failed: {}", e)))?;
 
-        // Format depends on version:
-        // Version 0: prefix{sep}env{sep}base64[.checksum]
-        // Version N: prefix{sep}vN{sep}env{sep}base64[.checksum]
+        self.assemble_key(encoded, environment, expiry)
+    }
+
+    /// Assembles the final key string from its components.
+    ///
+    /// # Key Format
+    ///
+    /// - Version 0: `prefix{sep}env{sep}base64[.expiry][.checksum]`
+    /// - Version N: `prefix{sep}vN{sep}env{sep}base64[.expiry][.checksum]`
+    ///
+    /// # Security
+    ///
+    /// Pre-allocates exact capacity to prevent reallocations during append operations.
+    /// `Vec::append()` can trigger reallocation if capacity is insufficient, which would
+    /// leave the old buffer (containing sensitive key material) in memory without zeroing.
+    /// By allocating the exact capacity needed upfront, we ensure a single buffer is used
+    /// throughout, which then gets moved to `SecureString` for proper zeroization on drop.
+    fn assemble_key(
+        &self,
+        mut encoded: Zeroizing<Vec<u8>>,
+        environment: Environment,
+        expiry: Option<DateTime<Utc>>,
+    ) -> Result<SecureString> {
         let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
         let version_component = self.config.version().component();
 
-        // SECURITY: Pre-allocate capacity to prevent reallocations during append operations.
-        // Vec::append() can trigger reallocation if capacity is insufficient, which would
-        // leave the old buffer (containing sensitive key material) in memory without zeroing.
-        // By allocating the exact capacity needed upfront, we ensure a single buffer is used
-        // throughout, which then gets moved to SecureString for proper zeroization on drop.
-        let checksum_length = match self.config.checksum_length() {
-            0 => 0,
-            n => n + 1, // Plus one for separator.
-        };
+        let checksum_len = *self.config.checksum_length();
+        let checksum_capacity = if checksum_len == 0 { 0 } else { checksum_len + 1 };
 
-        // Calculate capacity: prefix + [sep + version] + sep + env + sep + data + checksum
         let version_length = if version_component.is_empty() {
             0
         } else {
@@ -109,7 +100,7 @@ impl KeyGenerator {
             + sep.len()
             + encoded.len()
             + expiry_length
-            + checksum_length;
+            + checksum_capacity;
 
         let mut key = Vec::with_capacity(capacity);
         key.extend_from_slice(self.prefix.as_str().as_bytes());
@@ -125,118 +116,37 @@ impl KeyGenerator {
         key.extend_from_slice(sep.as_bytes());
         key.append(&mut encoded);
 
+        // Compute checksum on the key body BEFORE appending expiry and checksum.
+        // The expiry bytes are passed separately to checksum::compute() so the
+        // checksum covers both key body and expiry without mutating the key buffer.
         let exp_bytes = exp_string.as_ref().map(|v| v.as_bytes());
-        let checksum = self.compute_checksum(&key, exp_bytes);
-        // Compute checksum on the key BEFORE appending the separator and checksum
+        let computed_checksum = if checksum_len > 0 {
+            Some(checksum::compute(&key, exp_bytes, self.config.checksum_algorithm(), checksum_len))
+        } else {
+            None
+        };
+
         if let Some(b) = exp_bytes {
             key.push(CHECKSUM_SEPARATOR);
             key.extend_from_slice(b);
         }
 
-        // Compute checksum on the key BEFORE appending the separator and checksum
-        if let Some(checksum) = checksum {
+        if let Some(cs) = computed_checksum {
             key.push(CHECKSUM_SEPARATOR);
-            key.append(&mut checksum.into_bytes());
+            key.append(&mut cs.into_bytes());
         }
 
-        // SECURITY: It's SAFE to call from_utf8 here, since
-        // that function will copy the vector.
-        Ok(SecureString::from(String::from_utf8(key).map_err(
-            |_| {
-                Error::OperationFailed(OperationError::Generation(
-                    "Unable to create valid UTF-8 String".to_string(),
-                ))
-            },
-        )?))
-    }
-
-    /// Verifies the BLAKE3 checksum using constant-time comparison.
-    ///
-    /// Uses the `parse_token` function to properly extract checksum from keys
-    /// with or without expiration timestamps.
-    ///
-    /// # Security Note
-    /// - Uses constant-time comparison to prevent timing attacks that could
-    ///   reveal information about the key structure
-    /// - Performs dummy computation on oversized input to prevent side-channel
-    ///   attacks via timing analysis of error paths
-    ///
-    /// # Key Format Support
-    ///
-    /// Handles all key formats correctly:
-    /// - `key.checksum` - Key with checksum only
-    /// - `key.expiry.checksum` - Key with expiry and checksum
-    ///
-    /// The checksum is computed over the key and expiry (if present), but NOT
-    /// over the checksum itself.
-    pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
-        let key_bytes = key.expose_secret().as_bytes();
-        if key_bytes.len() > MAX_KEY_LENGTH {
-            // Perform fake work to prevent timing side-channel attacks
-            // This ensures rejection takes similar time as actual verification
-            let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
-            return Err(Error::InvalidFormat);
-        }
-
-        // Use parse_token to extract checksum and key parts
-        let has_checksum = *self.config.checksum_length() > 0;
-        let parts = match parse_token(key_bytes, has_checksum) {
-            Ok((_, parts)) => parts,
-            Err(_) => {
-                // If parsing fails, perform dummy work for timing consistency
-                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
-                return Ok(false);
-            }
-        };
-
-        // If no checksum present, return false
-        let checksum_bytes = match parts.checksum {
-            Some(c) => c,
-            None => {
-                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
-                return Ok(false);
-            }
-        };
-
-        let computed = match self.compute_checksum(parts.key, parts.expiry_b64) {
-            Some(computed) => computed,
-            None => {
-                let _ = self.compute_checksum(self.dummy_key.expose_secret(), None);
-                return Ok(false);
-            }
-        };
-
-        // Use constant-time comparison to prevent timing attacks
-        Ok(checksum_bytes.ct_eq(computed.as_bytes()).into())
-    }
-
-    /// Computes a integrity checksum.
-    fn compute_checksum<T: AsRef<[u8]>>(&self, key: T, timestamp: Option<&[u8]>) -> Option<String> {
-        // FIXME(ARCHITECTURE): We shouldn't perform this check here
-        // This function should just take key and return hash.
-        let checksum_len = *self.config.checksum_length();
-        if checksum_len == usize::MIN {
-            return None;
-        }
-        match self.config.checksum_algorithm() {
-            ChecksumAlgo::Black3 => {
-                let mut hasher = blake3::Hasher::new();
-                hasher.update(key.as_ref());
-                if let Some(timestamp) = timestamp {
-                    hasher.update(timestamp);
-                }
-                let hash = hasher.finalize();
-                Some(hash.to_hex()[..checksum_len].to_string())
-            }
-        }
+        // ZERO-COPY: Move the Vec<u8> directly into SecretBox<[u8]>.
+        // No intermediate String allocation or UTF-8 validation needed.
+        // The key bytes are guaranteed to be valid ASCII (prefix + base64url + hex checksum).
+        Ok(SecureString::from(key))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ApiKeyManagerV0, HashConfig, Separator};
-    use crate::{ExposeSecret, SecureStringExt};
+    use crate::SecureStringExt;
 
     #[test]
     fn test_base64_url_safe_encoding() {
@@ -306,18 +216,18 @@ mod tests {
         let config = KeyConfig::default();
         let checksum_len = *config.checksum_length();
 
-        let generator = KeyGenerator::new(prefix, config).unwrap();
+        let generator = KeyGenerator::new(prefix, config);
         let key = generator.generate(env, None).unwrap();
-        assert!(key.expose_secret().starts_with("sk-live-"));
+        assert!(key.as_str().starts_with("sk-live-"));
 
         // Verify key contains checksum separated by dot (enabled by default)
         assert!(
-            key.expose_secret().contains('.'),
+            key.as_str().contains('.'),
             "Should have checksum separated by dot"
         );
 
         // Split on . to separate checksum
-        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.as_str().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Should have key and checksum");
 
         let key_without_checksum = parts[1];
@@ -348,137 +258,18 @@ mod tests {
     }
 
     #[test]
-    fn test_checksum_generation_with_dot_separator() {
-        let prefix = KeyPrefix::new("pk").unwrap();
-        let env = Environment::Test;
-        let config = KeyConfig::default();
-
-        let generator = KeyGenerator::new(prefix, config).unwrap();
-        let key = generator.generate(env, None).unwrap();
-
-        // Verify checksum is separated by '.' (enabled by default)
-        assert!(
-            key.expose_secret().contains('.'),
-            "Checksum should be separated by '.'"
-        );
-        assert!(generator.verify_checksum(&key).unwrap());
-
-        // Corrupt the checksum - need to preserve the key structure
-        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
-        assert_eq!(parts.len(), 2);
-        let key_without_checksum = parts[1];
-        let corrupted = SecureString::from(format!("{}.wrong123", key_without_checksum));
-        assert!(!generator.verify_checksum(&corrupted).unwrap());
-    }
-
-    #[test]
-    fn test_verify_checksum_dos_protection() {
-        let generator = ApiKeyManagerV0::init(
-            "sk",
-            KeyConfig::balanced(),
-            HashConfig::default(),
-            std::time::Duration::ZERO,
-        )
-        .unwrap();
-
-        // Test oversized key rejection
-        let huge_key = SecureString::from("a".repeat(1000));
-        assert!(generator.verify_checksum(&huge_key).is_err());
-
-        // Test with valid size but invalid format returns false (not error)
-        let invalid = SecureString::from("no_checksum".to_string());
-        assert!(!generator.verify_checksum(&invalid).unwrap());
-
-        // Test boundary - exactly at limit
-        let at_limit = SecureString::from("sk_live_".to_string() + &"a".repeat(495) + ".abc123");
-        let result = generator.verify_checksum(&at_limit);
-        assert!(result.is_ok()); // No DoS error, just validation result
-    }
-
-    #[test]
     fn test_entropy_variations() {
         let prefix = KeyPrefix::new("api").unwrap();
         let env = Environment::Development;
 
         let config16 = KeyConfig::new().with_entropy(16).unwrap();
-        let generator16 = KeyGenerator::new(prefix.clone(), config16).unwrap();
+        let generator16 = KeyGenerator::new(prefix.clone(), config16);
         let key16 = generator16.generate(env.clone(), None).unwrap();
 
         let config32 = KeyConfig::new().with_entropy(32).unwrap();
-        let generator32 = KeyGenerator::new(prefix, config32).unwrap();
+        let generator32 = KeyGenerator::new(prefix, config32);
         let key32 = generator32.generate(env, None).unwrap();
 
         assert!(key32.len() > key16.len());
-    }
-
-    #[test]
-    fn test_checksum_separator_is_dot() {
-        let prefix = KeyPrefix::new("text").unwrap();
-        let env = Environment::Production;
-        let config = KeyConfig::default();
-        let checksum_len = *config.checksum_length();
-
-        let generator = KeyGenerator::new(prefix, config).unwrap();
-        let key = generator.generate(env, None).unwrap();
-
-        // With dash separator and checksum (default): test-live-data.checksum
-        // Should have exactly 1 dot (for checksum separator only)
-        let dot_count = key.expose_secret().matches('.').count();
-        assert_eq!(
-            dot_count, 1,
-            "Should have exactly one dot (for checksum separator)"
-        );
-
-        // Split on dot to separate checksum
-        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
-        assert_eq!(parts.len(), 2, "Should split into key and checksum");
-
-        let key_without_checksum = parts[1];
-        let checksum = parts[0];
-
-        // Split key on dash to verify structure (splitn to handle dashes in base64 data)
-        let mut key_parts = key_without_checksum.splitn(3, '-');
-        let prefix_part = key_parts.next().unwrap();
-        let env_part = key_parts.next().unwrap();
-        let data_part = key_parts.next().unwrap();
-
-        // First part should be prefix
-        assert_eq!(prefix_part, "text");
-        // Second part should be environment
-        assert_eq!(env_part, "live");
-        // Third part is data
-        assert!(data_part.len() > 0);
-        assert_eq!(checksum.len(), checksum_len);
-    }
-
-    #[test]
-    fn test_different_separators() {
-        let prefix = KeyPrefix::new("sk").unwrap();
-        let env = Environment::Production;
-
-        // Test with Slash
-        let config_slash = KeyConfig::default().with_separator(Separator::Slash);
-        let generator_slash = KeyGenerator::new(prefix.clone(), config_slash).unwrap();
-        let key_slash = generator_slash.generate(env.clone(), None).unwrap();
-        assert!(key_slash.expose_secret().contains('/'));
-        assert!(!key_slash.expose_secret().contains('~'));
-        assert!(generator_slash.verify_checksum(&key_slash).unwrap());
-
-        // Test with Dash (default)
-        let config_dash = KeyConfig::default().with_separator(Separator::Dash);
-        let generator_dash = KeyGenerator::new(prefix.clone(), config_dash).unwrap();
-        let key_dash = generator_dash.generate(env.clone(), None).unwrap();
-        assert!(key_dash.expose_secret().contains('-'));
-        // Checksum is always separated by dot
-        let parts: Vec<&str> = key_dash.expose_secret().rsplitn(2, '.').collect();
-        assert_eq!(parts.len(), 2, "Key should have checksum separated by dot");
-        assert!(generator_dash.verify_checksum(&key_dash).unwrap());
-
-        // Test with Tilde
-        let config_tilde = KeyConfig::default().with_separator(Separator::Tilde);
-        let generator_tilde = KeyGenerator::new(prefix, config_tilde).unwrap();
-        let key_tilde = generator_tilde.generate(env, None).unwrap();
-        assert!(key_tilde.expose_secret().contains('~'));
-        assert!(key_tilde.len() > 10);
     }
 }

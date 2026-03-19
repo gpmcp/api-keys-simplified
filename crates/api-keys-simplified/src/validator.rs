@@ -1,3 +1,5 @@
+//! API key verification with timing-attack protection.
+
 use crate::error::{ConfigError, Error, Result};
 use crate::token_parser::{parse_token, Parts};
 use crate::SecureString;
@@ -132,7 +134,7 @@ impl KeyValidator {
         // This prevents timing attacks that could distinguish between "invalid hash format"
         // and "valid hash but wrong password" errors
         use crate::ExposeSecret;
-        let dummy_bytes = self.dummy_password.expose_secret().as_bytes();
+        let dummy_bytes = self.dummy_password.expose_secret();
         parse_token(dummy_bytes, self.has_checksum).ok();
 
         Argon2::default()
@@ -144,11 +146,10 @@ impl KeyValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ExposeSecret;
-    use crate::{config::HashConfig, hasher::KeyHasher, SecureString};
+    use crate::{config::HashConfig, hasher::KeyHasher, secure::new_secure_string, SecureString, SecureStringExt};
 
     fn dummy_key_and_hash() -> (SecureString, String) {
-        let key = SecureString::from("sk-live-dummy123test".to_string());
+        let key = new_secure_string("sk-live-dummy123test".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let (_key_id, hash) = hasher.hash(&key).unwrap();
         (key, hash)
@@ -156,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_verification() {
-        let key = SecureString::from("sk_live_testkey123".to_string());
+        let key = new_secure_string("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let (_key_id, hash) = hasher.hash(&key).unwrap();
 
@@ -165,7 +166,7 @@ mod tests {
         assert_eq!(
             validator
                 .verify(
-                    key.expose_secret(),
+                    key.as_str(),
                     hash.as_ref(),
                     std::time::Duration::ZERO
                 )
@@ -194,7 +195,7 @@ mod tests {
     #[test]
     fn test_oversized_key_rejection() {
         let oversized_key = "a".repeat(513); // Exceeds MAX_KEY_LENGTH
-        let valid_key = SecureString::from("valid_key".to_string());
+        let valid_key = new_secure_string("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let (_key_id, hash) = hasher.hash(&valid_key).unwrap();
 
@@ -218,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_boundary_key_length() {
-        let valid_key = SecureString::from("valid_key".to_string());
+        let valid_key = new_secure_string("valid_key".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let (_key_id, hash) = hasher.hash(&valid_key).unwrap();
 
@@ -239,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_timing_oracle_protection() {
-        let valid_key = SecureString::from("sk_live_testkey123".to_string());
+        let valid_key = new_secure_string("sk_live_testkey123".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
         let (_key_id, valid_hash) = hasher.hash(&valid_key).unwrap();
 
@@ -251,7 +252,7 @@ mod tests {
         assert_eq!(result1.unwrap(), KeyStatus::Invalid);
 
         let result2 = validator.verify(
-            valid_key.expose_secret(),
+            valid_key.as_str(),
             "invalid_hash_format",
             std::time::Duration::ZERO,
         );
@@ -259,7 +260,7 @@ mod tests {
         assert_eq!(result2.unwrap(), KeyStatus::Invalid);
 
         let result3 = validator.verify(
-            valid_key.expose_secret(),
+            valid_key.as_str(),
             "not even close to valid",
             std::time::Duration::ZERO,
         );

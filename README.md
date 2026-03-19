@@ -20,14 +20,14 @@ A secure Rust library for generating and validating API keys with built-in secur
 ## Quick Example
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig, SecureStringExt};
 
 // Generate with checksum (enabled by default - 2900x faster DoS protection)
 let manager = ApiKeyManager::init_default_config("myapp_sk")?;
 let api_key = manager.generate(Environment::production())?;
 
 // Show to user once (they must save it)
-println!("API Key: {}", api_key.key().expose_secret());
+println!("API Key: {}", api_key.key().as_str());
 
 // Store hash in database (PHC format includes salt)
 let hash_data = api_key.expose_hash();
@@ -69,6 +69,7 @@ Report vulnerabilities to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 - [ ] Key rotation
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations
+- [x] Zero-copy key generation (`Vec<u8>` -> `SecretBox<[u8]>` with no intermediate `String`)
 - [ ] Switch to ZII or a hybrid (ZII +  RAII) approach for easier memory management.
 - [ ] Write e2e tests to ensure memory zeroization
 - [ ] Write e2e tests to verify prevention of side-channel attacks

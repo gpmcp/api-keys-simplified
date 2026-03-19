@@ -1,3 +1,5 @@
+//! Argon2id password hashing and BLAKE3 key ID generation.
+
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, SaltString},
     Argon2, Params, Version,
@@ -102,7 +104,7 @@ impl KeyHasher {
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// // Extract key ID from a provided API key (e.g., from Authorization header)
-    /// let provided_key = SecureString::from("sk-live-abc123...".to_string());
+    /// let provided_key = SecureString::from("sk-live-abc123...".to_string().into_bytes());
     /// let key_id = manager.extract_key_id(&provided_key);
     ///
     /// // Use key_id for database lookup
@@ -113,7 +115,7 @@ impl KeyHasher {
         use blake3::Hasher;
 
         let mut hasher = Hasher::new();
-        hasher.update(key.expose_secret().as_bytes());
+        hasher.update(key.expose_secret());
         let hash = hasher.finalize();
 
         // Use first 16 bytes (128 bits) for the key ID
@@ -143,7 +145,7 @@ impl KeyHasher {
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let key1 = manager.generate(Environment::production()).unwrap();
     /// // Regenerate the same hash using the salt from the original hash
-    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret().to_vec()))
     ///     .into_hashed_with_phc(manager.hasher(), key1.expose_hash().hash())
     ///     .unwrap();
     ///
@@ -183,7 +185,7 @@ impl KeyHasher {
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let hash = argon2
-            .hash_password(key.expose_secret().as_bytes(), salt)
+            .hash_password(key.expose_secret(), salt)
             .map_err(|e| OperationError::Hashing(e.to_string()))?;
 
         // SECURITY: Hashes are meant to be stored raw
@@ -195,10 +197,11 @@ impl KeyHasher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secure::new_secure_string;
 
     #[test]
     fn test_hashing() {
-        let key = SecureString::from("sk_test_abc123xyz789".to_string());
+        let key = new_secure_string("sk_test_abc123xyz789".to_string());
         let config = HashConfig::default();
         let hasher = KeyHasher::new(config);
 
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_different_configs() {
-        let key = SecureString::from("test_key".to_string());
+        let key = new_secure_string("test_key".to_string());
 
         let balanced_hasher = KeyHasher::new(HashConfig::balanced());
         let (_key_id1, balanced_hash) = balanced_hasher.hash(&key).unwrap();
@@ -229,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_hash_with_same_salt() {
-        let key = SecureString::from("sk_test_abc123xyz789".to_string());
+        let key = new_secure_string("sk_test_abc123xyz789".to_string());
         let config = HashConfig::default();
         let hasher = KeyHasher::new(config);
 
@@ -252,8 +255,8 @@ mod tests {
     #[test]
     fn test_key_id_properties() {
         let hasher = KeyHasher::new(HashConfig::default());
-        let key1 = SecureString::from("sk-live-key1".to_string());
-        let key2 = SecureString::from("sk-live-key2".to_string());
+        let key1 = new_secure_string("sk-live-key1".to_string());
+        let key2 = new_secure_string("sk-live-key2".to_string());
 
         // Determinism: same key always produces same ID
         let id1a = hasher.generate_key_id(&key1);
@@ -271,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_key_id_stability_with_hashing() {
-        let key = SecureString::from("sk-live-test".to_string());
+        let key = new_secure_string("sk-live-test".to_string());
         let hasher = KeyHasher::new(HashConfig::default());
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();

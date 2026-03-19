@@ -1,5 +1,5 @@
 use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
-use api_keys_simplified::{ExposeSecret, SecureStringExt};
+use api_keys_simplified::SecureStringExt;
 
 #[test]
 fn test_custom_entropy() {
@@ -31,9 +31,9 @@ fn test_without_checksum() {
     // Environment "live" means production, Base64URL can contain underscores and hyphens
     // Key format with dash separator: pk-live-{base64url_data}
     // No checksum, so no dot at the end
-    assert!(key.key().expose_secret().starts_with("pk-live-"));
+    assert!(key.key().as_str().starts_with("pk-live-"));
     assert!(
-        !key.key().expose_secret().contains('.'),
+        !key.key().as_str().contains('.'),
         "Should not have checksum dot"
     );
 }

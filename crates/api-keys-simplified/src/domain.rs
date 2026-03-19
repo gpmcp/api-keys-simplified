@@ -1,3 +1,6 @@
+//! Core domain types: `ApiKeyManagerV0` orchestrator and `ApiKey` container.
+
+use crate::checksum::ChecksumVerifier;
 use crate::error::InitError;
 use crate::validator::KeyStatus;
 use crate::{
@@ -7,17 +10,20 @@ use crate::{
     hasher::KeyHasher,
     secure::SecureString,
     validator::KeyValidator,
-    ExposeSecret, HashConfig,
+    HashConfig, SecureStringExt,
 };
 use chrono::{DateTime, Utc};
 use derive_getters::Getters;
 use std::fmt::Debug;
 
-/// ApiKeyManager is storable object
-/// used to generate and verify API keys.
-/// It contains immutable config data necessary
-/// to operate. It does NOT contain ANY sensitive
-/// data.
+/// Manages API key generation, hashing, and verification.
+///
+/// Holds immutable configuration for:
+/// - Key generation (prefix, entropy, separator, versioning)
+/// - Checksum verification (BLAKE3, for fast DoS rejection)
+/// - Hash verification (Argon2, for cryptographic proof)
+///
+/// Does **not** contain any sensitive key material.
 #[derive(Clone, Getters)]
 pub struct ApiKeyManagerV0 {
     #[getter(skip)]
@@ -26,12 +32,13 @@ pub struct ApiKeyManagerV0 {
     #[getter(skip)]
     validator: KeyValidator,
     #[getter(skip)]
-    include_checksum: bool,
+    checksum_verifier: ChecksumVerifier,
+    /// Grace period after key expiry before rejection. This is a deployment-level
+    /// setting (not per-request) to handle clock skew across distributed systems.
     #[getter(skip)]
     expiry_grace_period: std::time::Duration,
 }
 
-// FIXME: Need better naming
 /// Contains the Argon2 hash in PHC format and a stable key identifier.
 ///
 /// The hash can be safely stored in your database without special security measures
@@ -94,22 +101,25 @@ impl ApiKeyManagerV0 {
         hash_config: HashConfig,
         expiry_grace_period: std::time::Duration,
     ) -> std::result::Result<Self, InitError> {
-        let include_checksum = *config.checksum_length() != 0;
         let prefix = KeyPrefix::new(prefix)?;
-        let generator = KeyGenerator::new(prefix, config)?;
+        let generator = KeyGenerator::new(prefix, config.clone());
         let hasher = KeyHasher::new(hash_config);
 
-        // Generate dummy key and its hash for timing attack protection
-        let dummy_key = generator.dummy_key().clone();
+        // Generate a dummy key for timing-attack protection on error paths.
+        // Both checksum verifier and validator need this to perform constant-time
+        // dummy work when rejecting invalid inputs.
+        let dummy_key = generator.generate(Environment::Production, None)?;
         let (_dummy_key_id, dummy_hash) = hasher.hash(&dummy_key)?;
 
-        let validator = KeyValidator::new(include_checksum, dummy_key, dummy_hash)?;
+        let has_checksum = *config.checksum_length() > 0;
+        let checksum_verifier = ChecksumVerifier::new(&config, dummy_key.clone());
+        let validator = KeyValidator::new(has_checksum, dummy_key, dummy_hash)?;
 
         Ok(Self {
             generator,
             hasher,
             validator,
-            include_checksum,
+            checksum_verifier,
             expiry_grace_period,
         })
     }
@@ -140,10 +150,10 @@ impl ApiKeyManagerV0 {
     /// # Example
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, SecureStringExt};
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// let key = manager.generate(Environment::production())?;
-    /// println!("Key: {}", key.key().expose_secret());
+    /// println!("Key: {}", key.key().as_str());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn generate(&self, environment: impl Into<Environment>) -> Result<ApiKey<Hash>> {
@@ -194,13 +204,10 @@ impl ApiKeyManagerV0 {
     ///
     /// * `key` - The API key to verify
     /// * `stored_hash` - The Argon2 hash stored in your database
-    /// * `expiry_grace_period` - Optional grace period duration after expiry.
-    ///   - `None`: Skip expiry validation (all keys treated as non-expired)
-    ///   - `Some(Duration::ZERO)`: Strict expiry check (no grace period)
-    ///   - `Some(duration)`: Key remains valid for `duration` after its expiry time
     ///
-    /// The grace period protects against clock skew issues. Once a key expires beyond
-    /// the grace period, it stays expired even if the system clock goes backwards.
+    /// The `expiry_grace_period` configured at init time protects against clock skew.
+    /// Once a key expires beyond the grace period, it stays expired even if the
+    /// system clock goes backwards.
     ///
     /// # Security Flow
     ///
@@ -234,19 +241,19 @@ impl ApiKeyManagerV0 {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn verify(&self, key: &SecureString, stored_hash: impl AsRef<str>) -> Result<KeyStatus> {
-        if self.include_checksum && !self.verify_checksum(key)? {
+        if self.checksum_verifier.is_enabled() && !self.verify_checksum(key)? {
             return Ok(KeyStatus::Invalid);
         }
 
         self.validator.verify(
-            key.expose_secret(),
+            key.as_str(),
             stored_hash.as_ref(),
             self.expiry_grace_period,
         )
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {
-        self.generator.verify_checksum(key)
+        self.checksum_verifier.verify(key)
     }
 
     /// Extracts a stable key ID from an API key.
@@ -267,7 +274,7 @@ impl ApiKeyManagerV0 {
     /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, SecureString};
     /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// // Extract key ID from an incoming API key (e.g., from Authorization header)
-    /// let provided_key = SecureString::from("sk-live-abc123def456...".to_string());
+    /// let provided_key = SecureString::from("sk-live-abc123def456...".to_string().into_bytes());
     /// let key_id = manager.extract_key_id(&provided_key);
     ///
     /// // Use key_id for fast database lookup
@@ -288,13 +295,13 @@ impl ApiKeyManagerV0 {
 impl<T> ApiKey<T> {
     /// Returns a reference to the secure API key.
     ///
-    /// To access the underlying string, use `.expose_secret()` on the returned `SecureString`:
+    /// To access the underlying string, use `.as_str()` on the returned `SecureString`:
     ///
     /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
+    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, SecureStringExt};
     /// # let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
     /// # let api_key = generator.generate(Environment::production()).unwrap();
-    /// let key_str: &str = api_key.key().expose_secret();
+    /// let key_str: &str = api_key.key().as_str();
     /// ```
     ///
     /// # Security Note
@@ -348,7 +355,7 @@ impl ApiKey<NoHash> {
     /// let key1 = manager.generate(Environment::production()).unwrap();
     ///
     /// // Regenerate hash with the same salt (extracted from the PHC hash)
-    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret().to_vec()))
     ///     .into_hashed_with_phc(manager.hasher(), key1.expose_hash().hash())
     ///     .unwrap();
     ///
@@ -424,6 +431,7 @@ impl ApiKey<Hash> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secure::new_secure_string;
     use crate::{ExposeSecret, SecureStringExt};
 
     #[test]
@@ -434,14 +442,14 @@ mod tests {
         let key_str = api_key.key();
         let hash_str = api_key.expose_hash().hash();
 
-        assert!(key_str.expose_secret().starts_with("sk-live-"));
+        assert!(key_str.as_str().starts_with("sk-live-"));
         assert!(hash_str.starts_with("$argon2id$"));
 
         assert_eq!(
             generator.verify(key_str, hash_str).unwrap(),
             KeyStatus::Valid
         );
-        let wrong_key = SecureString::from("wrong_key".to_string());
+        let wrong_key = new_secure_string("wrong_key".to_string());
         assert_eq!(
             generator.verify(&wrong_key, hash_str).unwrap(),
             KeyStatus::Invalid
@@ -479,7 +487,7 @@ mod tests {
     fn compare_hash() {
         let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
         let key = manager.generate(Environment::production()).unwrap();
-        let new_secret = ApiKey::new(SecureString::from(key.key().expose_secret()))
+        let new_secret = ApiKey::new(SecureString::from(key.key().expose_secret().to_vec()))
             .into_hashed_with_phc(manager.hasher(), key.expose_hash().hash())
             .unwrap();
 
@@ -514,7 +522,7 @@ mod tests {
         let key1 = manager.generate(Environment::production()).unwrap();
 
         // Rehash with new salt
-        let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
+        let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret().to_vec()))
             .into_hashed(manager.hasher())
             .unwrap();
 
@@ -533,7 +541,7 @@ mod tests {
         let stored_hash = api_key.expose_hash().hash().to_string();
 
         // Simulate: incoming request
-        let incoming_key = SecureString::from(api_key.key().expose_secret());
+        let incoming_key = SecureString::from(api_key.key().expose_secret().to_vec());
         let lookup_key_id = manager.extract_key_id(&incoming_key);
 
         // Fast lookup by key_id, then verify

@@ -1,7 +1,7 @@
 use api_keys_simplified::{
     ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
 };
-use api_keys_simplified::{ExposeSecret, SecureStringExt};
+use api_keys_simplified::SecureStringExt;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
@@ -22,7 +22,7 @@ fn test_concurrent_generation_and_uniqueness() {
             let mut keys = Vec::new();
             for _ in 0..100 {
                 let key = gen.generate(Environment::production()).unwrap();
-                keys.push(key.key().expose_secret().to_string());
+                keys.push(key.key().as_str().to_string());
             }
             keys
         });
@@ -71,7 +71,7 @@ fn test_concurrent_verification_and_checksum() {
     for _ in 0..30 {
         let key = generator.generate(Environment::test()).unwrap();
         keys_and_hashes.push((
-            key.key().expose_secret().to_string(),
+            key.key().as_str().to_string(),
             key.expose_hash().hash().to_string(),
         ));
     }
@@ -87,7 +87,7 @@ fn test_concurrent_verification_and_checksum() {
             let mut checksum_ok = 0;
 
             for (key_str, hash_str) in data.iter() {
-                let key = SecureString::from(key_str.clone());
+                let key = SecureString::from(key_str.clone().into_bytes());
                 // Test Argon2 verification
                 if gen.verify(&key, hash_str).unwrap() == KeyStatus::Valid {
                     hash_ok += 1;
@@ -157,8 +157,8 @@ fn test_clone_safety_and_config_isolation() {
     let key3 = handles.remove(0).join().unwrap();
 
     // All keys should be unique
-    assert_ne!(key1.key().expose_secret(), key2.key().expose_secret());
-    assert_ne!(key1.key().expose_secret(), key3.key().expose_secret());
+    assert_ne!(key1.key().as_str(), key2.key().as_str());
+    assert_ne!(key1.key().as_str(), key3.key().as_str());
 
     // Verify with own generators
     assert_eq!(
@@ -185,9 +185,9 @@ fn test_clone_safety_and_config_isolation() {
     );
 
     // Different prefixes don't cross-verify
-    assert!(key1.key().expose_secret().starts_with("g1-"));
-    assert!(key2.key().expose_secret().starts_with("g1-"));
-    assert!(key3.key().expose_secret().starts_with("g3-"));
+    assert!(key1.key().as_str().starts_with("g1-"));
+    assert!(key2.key().as_str().starts_with("g1-"));
+    assert!(key3.key().as_str().starts_with("g3-"));
 
     // High-security keys should be longer
     assert!(key3.key().len() > key1.key().len());

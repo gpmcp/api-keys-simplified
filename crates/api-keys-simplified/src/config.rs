@@ -1,7 +1,9 @@
+//! Configuration types for API key generation and hashing.
+
 use crate::error::ConfigError;
 use derive_getters::Getters;
-use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::LazyLock;
 use strum::{Display, EnumIter, EnumString};
 use strum::{IntoEnumIterator, IntoStaticStr};
 
@@ -86,11 +88,11 @@ pub enum Environment {
     Production,
 }
 
-lazy_static! {
-    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
-    // Regex to detect version patterns: 'v' followed by one or more digits
-    static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
-}
+static ENVIRONMENT_VARIANTS: LazyLock<Vec<Environment>> =
+    LazyLock::new(|| Environment::iter().collect());
+
+/// Regex to detect version patterns: 'v' followed by one or more digits.
+static VERSION_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"v\d+").unwrap());
 
 impl Environment {
     pub fn dev() -> Self {
@@ -174,8 +176,8 @@ impl HashConfig {
         time_cost: u32,
         parallelism: u32,
     ) -> std::result::Result<Self, ConfigError> {
-        // Verify parameters are accepted by Argon2 library
-        // Bad idea to do it here.. but we'll keep it here for now
+        // Fail-fast: validate that Argon2 accepts these parameters at construction time
+        // rather than deferring the error to the first hash operation.
         argon2::Params::new(memory_cost, time_cost, parallelism, None)
             .map_err(|_| ConfigError::InvalidHashParams)?;
 
@@ -226,12 +228,12 @@ impl Default for HashConfig {
 
 #[derive(Default, Debug, Clone, IntoStaticStr)]
 pub enum ChecksumAlgo {
-    /// Cryptographic yet fast
-    /// hashing algo, suitable for
+    /// Cryptographic yet fast hashing algorithm, suitable for
     /// quick checksum verification.
+    /// See <https://github.com/BLAKE3-team/BLAKE3>.
     #[default]
     #[strum(serialize = "b3")]
-    Black3,
+    Blake3,
 }
 
 #[derive(Debug, Clone, Getters)]
@@ -261,7 +263,7 @@ impl KeyConfig {
 
     pub fn checksum(mut self, bytes: usize) -> Result<Self, ConfigError> {
         match &self.checksum_algorithm {
-            ChecksumAlgo::Black3 => {
+            ChecksumAlgo::Blake3 => {
                 if bytes < 32 {
                     return Err(ConfigError::ChecksumLenTooSmall);
                 }

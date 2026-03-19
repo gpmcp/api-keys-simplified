@@ -22,7 +22,7 @@ A secure, Rust library for generating and validating API keys with built-in secu
 ### Basic Usage
 
 ```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString, SecureStringExt};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize with checksum (out of the box DoS protection)
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = manager.generate(Environment::production())?;
 
     // 3. Show key to user ONCE (they must save it)
-    println!("API Key: {}", api_key.key().expose_secret());
+    println!("API Key: {}", api_key.key().as_str());
 
     // 4. Store hash in database (PHC format includes salt)
     let hash_data = api_key.expose_hash();
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Later: verify an incoming key (checksum validated first!)
     let provided_key_str = request.headers().get("Authorization")?.replace("Bearer ", "");
-    let provided_key = SecureString::from(provided_key_str);
+    let provided_key = SecureString::from(provided_key_str.into_bytes());
     let stored_hash = database::get_user_key_hash(user_id)?;
 
     match manager.verify(&provided_key, &stored_hash)? {
@@ -152,7 +152,7 @@ Common API key security mistakes:
 
 ```rust
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, 
+    ApiKeyManagerV0, Environment, SecureStringExt,
     KeyStatus, SecureString, ApiKey, Hash
 };
 use chrono::{Duration, Utc};
@@ -165,7 +165,7 @@ let key = manager.generate(Environment::production())?;
 println!("{:?}", key);  // Prints: ApiKey { key: "[REDACTED]", ... }
 
 // ✅ Show keys only once
-display_to_user_once(key.key().expose_secret());
+display_to_user_once(key.key().as_str());
 
 // Store hash (PHC format includes salt)
 let hash_data = key.expose_hash();
@@ -173,7 +173,7 @@ db.save(hash_data.hash());
 
 // ✅ Always use HTTPS
 let response = client.get("https://api.example.com")
-    .header("Authorization", format!("Bearer {}", key.key().expose_secret()))
+    .header("Authorization", format!("Bearer {}", key.key().as_str()))
     .send()?;
 
 // ✅ Implement key rotation
@@ -225,7 +225,7 @@ if rate_limiter.check(ip_address).is_err() {
     return Err("Too many failed attempts");
 }
 // Convert incoming string to SecureString
-let incoming_key = SecureString::from(request_key_string.to_string());
+let incoming_key = SecureString::from(request_key_string.into_bytes());
 manager.verify(&incoming_key, &stored_hash)?;
 ```
 
@@ -248,12 +248,12 @@ cargo test --features expensive_tests  # Include timing analysis
 ## Error Handling
 
 ```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, Error, ExposeSecret};
+use api_keys_simplified::{ApiKeyManagerV0, Environment, Error, SecureStringExt};
 
 match ApiKeyManagerV0::init_default_config("sk") {
     Ok(manager) => {
         match manager.generate(Environment::production()) {
-            Ok(key) => println!("Success: {}", key.key().expose_secret()),
+            Ok(key) => println!("Success: {}", key.key().as_str()),
             Err(Error::OperationFailed(op_err)) => {
                 // Operation errors contain details (use {:?} in logs for debugging)
                 eprintln!("Operation error: {}", op_err);
@@ -307,6 +307,7 @@ Email security issues to: [sandip@ssdd.dev](mailto:sandip@ssdd.dev)
 - [ ] Key rotation
 - [x] Fix timing attack in dummy_load
 - [x] Zero all intermediate string allocations
+- [x] Zero-copy key generation (`Vec<u8>` -> `SecretBox<[u8]>` with no intermediate `String`)
 - [ ] Switch to ZII or a hybrid (ZII +  RAII) approach for easier memory management.
 - [ ] Write e2e tests to ensure memory zeroization
 - [ ] Write e2e tests to verify prevention of side-channel attacks

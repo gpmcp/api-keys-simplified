@@ -63,11 +63,11 @@ impl ChecksumVerifier {
     /// The checksum is computed over the key and expiry (if present), but NOT
     /// over the checksum itself.
     pub(crate) fn verify(&self, key: &SecureString) -> Result<bool> {
-        let key_bytes = key.expose_secret().as_bytes();
+        let key_bytes = key.expose_secret();
         if key_bytes.len() > MAX_KEY_LENGTH {
             // Perform fake work to prevent timing side-channel attacks.
             // This ensures rejection takes similar time as actual verification.
-            let _ = compute(&self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+            let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
             return Err(Error::InvalidFormat);
         }
 
@@ -75,28 +75,21 @@ impl ChecksumVerifier {
         let parts = match parse_token(key_bytes, has_checksum) {
             Ok((_, parts)) => parts,
             Err(_) => {
-                // If parsing fails, perform dummy work for timing consistency.
-                let _ = compute(&self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+                let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
                 return Ok(false);
             }
         };
 
-        // If no checksum present, return false.
+        // If no checksum present in the token, return false.
         let checksum_bytes = match parts.checksum {
             Some(c) => c,
             None => {
-                let _ = compute(&self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+                let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
                 return Ok(false);
             }
         };
 
-        let computed = match compute(parts.key, parts.expiry_b64, &self.algorithm, self.length) {
-            Some(computed) => computed,
-            None => {
-                let _ = compute(&self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
-                return Ok(false);
-            }
-        };
+        let computed = compute(parts.key, parts.expiry_b64, &self.algorithm, self.length);
 
         // Use constant-time comparison to prevent timing attacks.
         Ok(checksum_bytes.ct_eq(computed.as_bytes()).into())
@@ -105,26 +98,28 @@ impl ChecksumVerifier {
 
 /// Computes a BLAKE3 integrity checksum over the given key material.
 ///
-/// This is a pure function: the caller decides whether to call it.
-/// Returns `None` only if `length` is 0.
+/// This is a pure function with no internal config checks.
+/// The caller is responsible for only calling this when a checksum is needed.
+///
+/// # Panics
+///
+/// Panics if `length` is 0 — callers must check before calling.
 pub(crate) fn compute<T: AsRef<[u8]>>(
     key: T,
     timestamp: Option<&[u8]>,
     algorithm: &ChecksumAlgo,
     length: usize,
-) -> Option<String> {
-    if length == 0 {
-        return None;
-    }
+) -> String {
+    debug_assert!(length > 0, "compute() called with length 0; caller should guard");
     match algorithm {
-        ChecksumAlgo::Black3 => {
+        ChecksumAlgo::Blake3 => {
             let mut hasher = blake3::Hasher::new();
             hasher.update(key.as_ref());
             if let Some(timestamp) = timestamp {
                 hasher.update(timestamp);
             }
             let hash = hasher.finalize();
-            Some(hash.to_hex()[..length].to_string())
+            hash.to_hex()[..length].to_string()
         }
     }
 }
@@ -133,7 +128,8 @@ pub(crate) fn compute<T: AsRef<[u8]>>(
 mod tests {
     use super::*;
     use crate::{ApiKeyManagerV0, HashConfig, KeyConfig, Separator};
-    use crate::{config::KeyPrefix, generator::KeyGenerator, ExposeSecret, SecureStringExt};
+    use crate::{config::KeyPrefix, generator::KeyGenerator, SecureStringExt};
+    use crate::secure::new_secure_string;
 
     #[test]
     fn test_checksum_generation_with_dot_separator() {
@@ -149,16 +145,16 @@ mod tests {
 
         // Verify checksum is separated by '.' (enabled by default)
         assert!(
-            key.expose_secret().contains('.'),
+            key.as_str().contains('.'),
             "Checksum should be separated by '.'"
         );
         assert!(verifier.verify(&key).unwrap());
 
         // Corrupt the checksum - need to preserve the key structure
-        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.as_str().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2);
         let key_without_checksum = parts[1];
-        let corrupted = SecureString::from(format!("{}.wrong123", key_without_checksum));
+        let corrupted = new_secure_string(format!("{}.wrong123", key_without_checksum));
         assert!(!verifier.verify(&corrupted).unwrap());
     }
 
@@ -173,15 +169,15 @@ mod tests {
         .unwrap();
 
         // Test oversized key rejection
-        let huge_key = SecureString::from("a".repeat(1000));
+        let huge_key = new_secure_string("a".repeat(1000));
         assert!(generator.verify_checksum(&huge_key).is_err());
 
         // Test with valid size but invalid format returns false (not error)
-        let invalid = SecureString::from("no_checksum".to_string());
+        let invalid = new_secure_string("no_checksum".to_string());
         assert!(!generator.verify_checksum(&invalid).unwrap());
 
         // Test boundary - exactly at limit
-        let at_limit = SecureString::from("sk_live_".to_string() + &"a".repeat(495) + ".abc123");
+        let at_limit = new_secure_string("sk_live_".to_string() + &"a".repeat(495) + ".abc123");
         let result = generator.verify_checksum(&at_limit);
         assert!(result.is_ok()); // No DoS error, just validation result
     }
@@ -198,14 +194,14 @@ mod tests {
 
         // With dash separator and checksum (default): test-live-data.checksum
         // Should have exactly 1 dot (for checksum separator only)
-        let dot_count = key.expose_secret().matches('.').count();
+        let dot_count = key.as_str().matches('.').count();
         assert_eq!(
             dot_count, 1,
             "Should have exactly one dot (for checksum separator)"
         );
 
         // Split on dot to separate checksum
-        let parts: Vec<&str> = key.expose_secret().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key.as_str().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Should split into key and checksum");
 
         let key_without_checksum = parts[1];
@@ -237,8 +233,8 @@ mod tests {
         let key_slash = generator_slash.generate(env.clone(), None).unwrap();
         let dummy_slash = generator_slash.generate(crate::config::Environment::Production, None).unwrap();
         let verifier_slash = ChecksumVerifier::new(&config_slash, dummy_slash);
-        assert!(key_slash.expose_secret().contains('/'));
-        assert!(!key_slash.expose_secret().contains('~'));
+        assert!(key_slash.as_str().contains('/'));
+        assert!(!key_slash.as_str().contains('~'));
         assert!(verifier_slash.verify(&key_slash).unwrap());
 
         // Test with Dash (default)
@@ -247,9 +243,9 @@ mod tests {
         let key_dash = generator_dash.generate(env.clone(), None).unwrap();
         let dummy_dash = generator_dash.generate(crate::config::Environment::Production, None).unwrap();
         let verifier_dash = ChecksumVerifier::new(&config_dash, dummy_dash);
-        assert!(key_dash.expose_secret().contains('-'));
+        assert!(key_dash.as_str().contains('-'));
         // Checksum is always separated by dot
-        let parts: Vec<&str> = key_dash.expose_secret().rsplitn(2, '.').collect();
+        let parts: Vec<&str> = key_dash.as_str().rsplitn(2, '.').collect();
         assert_eq!(parts.len(), 2, "Key should have checksum separated by dot");
         assert!(verifier_dash.verify(&key_dash).unwrap());
 
@@ -257,7 +253,7 @@ mod tests {
         let config_tilde = KeyConfig::default().with_separator(Separator::Tilde);
         let generator_tilde = KeyGenerator::new(prefix, config_tilde);
         let key_tilde = generator_tilde.generate(env, None).unwrap();
-        assert!(key_tilde.expose_secret().contains('~'));
+        assert!(key_tilde.as_str().contains('~'));
         assert!(key_tilde.len() > 10);
     }
 
@@ -265,26 +261,21 @@ mod tests {
     fn test_compute_pure_function() {
         let algo = ChecksumAlgo::default();
 
-        // Length 0 returns None
-        assert!(compute(b"hello", None, &algo, 0).is_none());
-
-        // Non-zero length returns Some
-        let result = compute(b"hello", None, &algo, 20);
-        assert!(result.is_some());
-        let hex = result.unwrap();
+        // Non-zero length returns a hex string
+        let hex = compute(b"hello", None, &algo, 20);
         assert_eq!(hex.len(), 20);
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
 
         // Deterministic
-        let result2 = compute(b"hello", None, &algo, 20).unwrap();
-        assert_eq!(hex, result2);
+        let hex2 = compute(b"hello", None, &algo, 20);
+        assert_eq!(hex, hex2);
 
         // Different key => different checksum
-        let result3 = compute(b"world", None, &algo, 20).unwrap();
-        assert_ne!(hex, result3);
+        let hex3 = compute(b"world", None, &algo, 20);
+        assert_ne!(hex, hex3);
 
         // With timestamp changes the result
-        let result4 = compute(b"hello", Some(b"timestamp"), &algo, 20).unwrap();
-        assert_ne!(hex, result4);
+        let hex4 = compute(b"hello", Some(b"timestamp"), &algo, 20);
+        assert_ne!(hex, hex4);
     }
 }
