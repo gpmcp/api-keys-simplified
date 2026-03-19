@@ -1,3 +1,5 @@
+//! Error types with intentionally generic `Display` messages for security.
+
 use thiserror::Error;
 
 /// Error type for API key operations.
@@ -58,7 +60,7 @@ pub enum ConfigError {
     )]
     InvalidArgon2Hash,
 
-    #[error("Minium checksum length should be 32 bits")]
+    #[error("Minimum checksum length should be 32 bits")]
     ChecksumLenTooSmall,
 
     #[error("Checksum length should be at MOST 128 bits")]

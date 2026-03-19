@@ -1,3 +1,5 @@
+//! Zero-copy token parser for API key format: `key[.expiry][.checksum]`.
+
 use nom::{
     error::{ErrorKind, ParseError},
     Err as NomErr, IResult,
@@ -178,7 +180,7 @@ mod tests {
     fn simple_test_parse_token() {
         let (key, ts) = gen(true, true, true, false);
         let token = key.key().expose_secret();
-        let parts = parse_token(token.as_bytes(), true).unwrap().1;
+        let parts = parse_token(token, true).unwrap().1;
         let exp = parts.expiry_b64.unwrap();
         let exp_be_by = URL_SAFE_NO_PAD.decode(exp).unwrap();
         assert_eq!(

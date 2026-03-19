@@ -1,12 +1,12 @@
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, KeyVersion,
+    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, KeyVersion, SecureStringExt,
 };
 
 #[test]
 fn test_unversioned_key_format() {
     let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // Unversioned keys should have format: prefix-env-data.checksum
     assert!(key_str.starts_with("sk-live-"));
@@ -28,7 +28,7 @@ fn test_versioned_key_v1_format() {
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // V1 keys should have format: prefix-v1-env-data.checksum
     assert!(key_str.starts_with("sk-v1-live-"));
@@ -46,7 +46,7 @@ fn test_versioned_key_v2_format() {
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // V2 keys should have format: prefix-v2-env-data.checksum
     assert!(key_str.starts_with("sk-v2-live-"));
@@ -64,7 +64,7 @@ fn test_custom_version_number() {
     )
     .unwrap();
     let key = manager.generate(Environment::staging()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // Custom version keys should have format: prefix-v42-env-data.checksum
     assert!(key_str.starts_with("api-v42-staging-"));
@@ -175,10 +175,10 @@ fn test_versioned_keys_support_all_environments() {
     let staging = manager.generate(Environment::staging()).unwrap();
     let prod = manager.generate(Environment::production()).unwrap();
 
-    assert!(dev.key().expose_secret().starts_with("sk-v1-dev-"));
-    assert!(test.key().expose_secret().starts_with("sk-v1-test-"));
-    assert!(staging.key().expose_secret().starts_with("sk-v1-staging-"));
-    assert!(prod.key().expose_secret().starts_with("sk-v1-live-"));
+    assert!(dev.key().as_str().starts_with("sk-v1-dev-"));
+    assert!(test.key().as_str().starts_with("sk-v1-test-"));
+    assert!(staging.key().as_str().starts_with("sk-v1-staging-"));
+    assert!(prod.key().as_str().starts_with("sk-v1-live-"));
 
     // All should verify
     assert_eq!(
@@ -220,7 +220,7 @@ fn test_versioned_keys_with_different_separators() {
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // Should use slash separator but version format stays the same
     assert!(key_str.starts_with("sk/v1/live/"));
@@ -243,7 +243,7 @@ fn test_versioned_keys_without_checksum() {
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // Should have version but no checksum separator
     assert!(key_str.starts_with("sk-v1-live-"));
@@ -267,7 +267,7 @@ fn test_versioned_keys_with_high_security() {
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
 
     // Should have version and be longer due to high security settings
     assert!(key_str.starts_with("sk-v2-live-"));
@@ -310,8 +310,8 @@ fn test_migration_scenario() {
     );
 
     // Keys should look different
-    assert!(!old_key.key().expose_secret().contains("-v1-"));
-    assert!(new_key.key().expose_secret().contains("-v1-"));
+    assert!(!old_key.key().as_str().contains("-v1-"));
+    assert!(new_key.key().as_str().contains("-v1-"));
 }
 
 #[test]

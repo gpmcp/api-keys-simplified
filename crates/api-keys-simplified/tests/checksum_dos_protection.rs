@@ -1,4 +1,4 @@
-use api_keys_simplified::ExposeSecret;
+use api_keys_simplified::SecureStringExt;
 use api_keys_simplified::{
     ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
 };
@@ -14,11 +14,11 @@ fn test_checksum_prevents_expensive_verification() {
     let valid_hash = valid_key.expose_hash().hash().to_string();
 
     // Create invalid key with corrupted checksum (but valid format)
-    let key_str = valid_key.key().expose_secret();
+    let key_str = valid_key.key().as_str();
     let parts: Vec<&str> = key_str.rsplitn(2, '.').collect();
     let key_without_checksum = parts[1];
     let invalid_key_with_bad_checksum = format!("{}.deadbeef", key_without_checksum);
-    let invalid_key = SecureString::from(invalid_key_with_bad_checksum);
+    let invalid_key = SecureString::from(invalid_key_with_bad_checksum.into_bytes());
 
     // Measure time for invalid checksum verification
     let start = Instant::now();
@@ -101,7 +101,7 @@ fn test_dos_protection_comparison() {
 
     // Create invalid keys (random garbage)
     let invalid_keys: Vec<SecureString> = (0..10)
-        .map(|i| SecureString::from(format!("dos1-test-random_garbage_{}", i)))
+        .map(|i| SecureString::from(format!("dos1-test-random_garbage_{}", i).into_bytes()))
         .collect();
 
     // Test WITH checksum - should be fast
@@ -113,7 +113,7 @@ fn test_dos_protection_comparison() {
 
     // Test WITHOUT checksum - should be slow (all Argon2)
     let invalid_keys_no_checksum: Vec<SecureString> = (0..10)
-        .map(|i| SecureString::from(format!("dos2-test-random_garbage_{}", i)))
+        .map(|i| SecureString::from(format!("dos2-test-random_garbage_{}", i).into_bytes()))
         .collect();
 
     let start = Instant::now();
@@ -154,7 +154,7 @@ fn test_without_checksum_still_works() {
     );
 
     // Invalid key should still fail
-    let invalid = SecureString::from("nochk-test-invalid".to_string());
+    let invalid = SecureString::from("nochk-test-invalid".to_string().into_bytes());
     assert_eq!(
         generator
             .verify(&invalid, key.expose_hash().hash())

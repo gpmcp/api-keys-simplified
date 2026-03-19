@@ -1,5 +1,5 @@
+use api_keys_simplified::SecureStringExt;
 use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus, SecureString};
-use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 /// Integration tests for secure memory handling
 #[cfg(test)]
@@ -14,7 +14,7 @@ mod secure_integration_tests {
         // Debug output should not expose the actual key
         let debug_output = format!("{:?}", api_key);
         assert!(debug_output.contains("[REDACTED]"));
-        assert!(!debug_output.contains(api_key.key().expose_secret()));
+        assert!(!debug_output.contains(api_key.key().as_str()));
 
         // Should still show hash (not sensitive after storage)
         assert!(debug_output.contains("hash"));
@@ -24,12 +24,12 @@ mod secure_integration_tests {
     fn test_secure_string_in_collections() {
         // Verify SecureString works in Vec (common use case)
         let keys = vec![
-            SecureString::from("key1".to_string()),
-            SecureString::from("key2".to_string()),
+            SecureString::from("key1".to_string().into_bytes()),
+            SecureString::from("key2".to_string().into_bytes()),
         ];
 
-        assert_eq!(keys[0].expose_secret(), "key1");
-        assert_eq!(keys[1].expose_secret(), "key2");
+        assert_eq!(keys[0].as_str(), "key1");
+        assert_eq!(keys[1].as_str(), "key2");
 
         // When dropped, all memory should be zeroed
         drop(keys);
@@ -42,11 +42,11 @@ mod secure_integration_tests {
         let api_key = generator.generate(Environment::dev()).unwrap();
 
         // Create another key with the same data for testing
-        let key_str = api_key.key().expose_secret().to_string();
+        let key_str = api_key.key().as_str().to_string();
         let hash_str = api_key.expose_hash().hash().to_string();
 
         // Create a new ApiKey instance with the same key
-        let another_key = SecureString::from(key_str);
+        let another_key = SecureString::from(key_str.into_bytes());
 
         // Verification should work with the same data
         assert_eq!(
@@ -57,9 +57,9 @@ mod secure_integration_tests {
 
     #[test]
     fn test_secure_string_prevents_accidental_logging() {
-        let secret = SecureString::from("super_secret_key_12345".to_string());
+        let secret = SecureString::from("super_secret_key_12345".to_string().into_bytes());
 
-        // secrecy::SecretString doesn't implement Display (compile-time protection)
+        // secrecy::SecretSlice doesn't implement Display (compile-time protection)
         // Can only use Debug which redacts
         let debug_log = format!("Key details: {:?}", secret);
         assert!(!debug_log.contains("super_secret_key_12345"));
@@ -72,8 +72,8 @@ mod secure_integration_tests {
         // The actual zeroing is guaranteed by the zeroize crate
 
         {
-            let secret = SecureString::from("temporary_key_12345".to_string());
-            assert_eq!(secret.expose_secret(), "temporary_key_12345");
+            let secret = SecureString::from("temporary_key_12345".to_string().into_bytes());
+            assert_eq!(secret.as_str(), "temporary_key_12345");
             // Memory will be zeroed when secret goes out of scope
         }
 
@@ -88,14 +88,14 @@ mod secure_integration_tests {
         // Full lifecycle test demonstrating secure memory usage
         let generator = ApiKeyManagerV0::init_default_config("api").unwrap();
         let key1 = generator.generate(Environment::production()).unwrap();
-        let key_str = key1.key().expose_secret().to_string();
+        let key_str = key1.key().as_str().to_string();
         let hash_str = key1.expose_hash().hash().to_string();
 
         // Drop the original - memory is zeroed automatically
         drop(key1);
 
         // Verification still works with the copied strings
-        let verify_key = SecureString::from(key_str);
+        let verify_key = SecureString::from(key_str.into_bytes());
         assert_eq!(
             generator.verify(&verify_key, &hash_str).unwrap(),
             KeyStatus::Valid

@@ -6,13 +6,13 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus};
+//! use api_keys_simplified::{ApiKeyManagerV0, Environment, SecureStringExt, KeyStatus};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Generate a new key with checksum (enabled by default for DoS protection)
 //! let generator = ApiKeyManagerV0::init_default_config("sk")?;
 //! let key = generator.generate(Environment::production())?;
-//! println!("Key: {}", key.key().expose_secret()); // Show once to user
+//! println!("Key: {}", key.key().as_str()); // Show once to user
 //! let hash = key.expose_hash().hash(); // Store this in database
 //!
 //! // Validate a key - checksum is verified first for DoS protection
@@ -31,6 +31,7 @@
 //!
 //! The checksum uses BLAKE3 (cryptographic hash) for integrity verification.
 
+mod checksum;
 mod config;
 mod domain;
 mod error;

@@ -1,5 +1,5 @@
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, SecureString,
+    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString, SecureStringExt,
 };
 use chrono::{Duration, Utc};
 
@@ -254,8 +254,8 @@ fn test_multiple_keys_same_expiry() {
         .unwrap();
 
     // All keys should be unique
-    assert_ne!(key1.key().expose_secret(), key2.key().expose_secret());
-    assert_ne!(key2.key().expose_secret(), key3.key().expose_secret());
+    assert_ne!(key1.key().as_str(), key2.key().as_str());
+    assert_ne!(key2.key().as_str(), key3.key().as_str());
     assert_ne!(
         key1.expose_hash().hash().to_string(),
         key2.expose_hash().hash().to_string()
@@ -367,13 +367,13 @@ fn test_corrupted_expiry_returns_invalid() {
         .unwrap();
 
     // Corrupt the key by modifying expiry portion
-    let key_str = key.key().expose_secret();
+    let key_str = key.key().as_str();
     let parts: Vec<&str> = key_str.split('.').collect();
 
     if parts.len() >= 2 {
         // Replace expiry with corrupted data (wrong length)
         let corrupted = format!("{}.corrupted.{}", parts[0], parts.get(2).unwrap_or(&""));
-        let corrupted_key = SecureString::from(corrupted);
+        let corrupted_key = SecureString::from(corrupted.into_bytes());
 
         // Should return Invalid (or Expired), not panic
         let result = manager.verify(&corrupted_key, key.expose_hash().hash());
