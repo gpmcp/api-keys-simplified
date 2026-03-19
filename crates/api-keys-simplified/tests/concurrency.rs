@@ -1,7 +1,7 @@
+use api_keys_simplified::SecureStringExt;
 use api_keys_simplified::{
     ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
 };
-use api_keys_simplified::SecureStringExt;
 use std::sync::{Arc, Barrier};
 use std::thread;
 

@@ -1,5 +1,5 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus, SecureString};
 use api_keys_simplified::SecureStringExt;
+use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus, SecureString};
 
 /// Integration tests for secure memory handling
 #[cfg(test)]

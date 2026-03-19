@@ -146,7 +146,10 @@ impl KeyValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::HashConfig, hasher::KeyHasher, secure::new_secure_string, SecureString, SecureStringExt};
+    use crate::{
+        config::HashConfig, hasher::KeyHasher, secure::new_secure_string, SecureString,
+        SecureStringExt,
+    };
 
     fn dummy_key_and_hash() -> (SecureString, String) {
         let key = new_secure_string("sk-live-dummy123test".to_string());
@@ -165,11 +168,7 @@ mod tests {
         let validator = KeyValidator::new(true, dummy_key, dummy_hash).unwrap();
         assert_eq!(
             validator
-                .verify(
-                    key.as_str(),
-                    hash.as_ref(),
-                    std::time::Duration::ZERO
-                )
+                .verify(key.as_str(), hash.as_ref(), std::time::Duration::ZERO)
                 .unwrap(),
             KeyStatus::Valid
         );

@@ -83,7 +83,11 @@ impl KeyGenerator {
         let version_component = self.config.version().component();
 
         let checksum_len = *self.config.checksum_length();
-        let checksum_capacity = if checksum_len == 0 { 0 } else { checksum_len + 1 };
+        let checksum_capacity = if checksum_len == 0 {
+            0
+        } else {
+            checksum_len + 1
+        };
 
         let version_length = if version_component.is_empty() {
             0
@@ -121,7 +125,12 @@ impl KeyGenerator {
         // checksum covers both key body and expiry without mutating the key buffer.
         let exp_bytes = exp_string.as_ref().map(|v| v.as_bytes());
         let computed_checksum = if checksum_len > 0 {
-            Some(checksum::compute(&key, exp_bytes, self.config.checksum_algorithm(), checksum_len))
+            Some(checksum::compute(
+                &key,
+                exp_bytes,
+                self.config.checksum_algorithm(),
+                checksum_len,
+            ))
         } else {
             None
         };

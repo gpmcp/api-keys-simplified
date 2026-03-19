@@ -1,5 +1,5 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
 use api_keys_simplified::SecureStringExt;
+use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
 use std::collections::HashSet;
 
 #[test]
@@ -49,10 +49,7 @@ fn test_checksum_validation() {
 
     // Corrupt the checksum
     let key_str = with_checksum.key().as_str();
-    let corrupted = format!(
-        "{}_corrupt",
-        &key_str[..with_checksum.key().len() - 8]
-    );
+    let corrupted = format!("{}_corrupt", &key_str[..with_checksum.key().len() - 8]);
     let corrupted_key = api_keys_simplified::SecureString::from(corrupted.into_bytes());
     assert!(!generator.verify_checksum(&corrupted_key).unwrap());
 }

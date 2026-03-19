@@ -67,7 +67,12 @@ impl ChecksumVerifier {
         if key_bytes.len() > MAX_KEY_LENGTH {
             // Perform fake work to prevent timing side-channel attacks.
             // This ensures rejection takes similar time as actual verification.
-            let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+            let _ = compute(
+                self.dummy_key.expose_secret(),
+                None,
+                &self.algorithm,
+                self.length,
+            );
             return Err(Error::InvalidFormat);
         }
 
@@ -75,7 +80,12 @@ impl ChecksumVerifier {
         let parts = match parse_token(key_bytes, has_checksum) {
             Ok((_, parts)) => parts,
             Err(_) => {
-                let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+                let _ = compute(
+                    self.dummy_key.expose_secret(),
+                    None,
+                    &self.algorithm,
+                    self.length,
+                );
                 return Ok(false);
             }
         };
@@ -84,7 +94,12 @@ impl ChecksumVerifier {
         let checksum_bytes = match parts.checksum {
             Some(c) => c,
             None => {
-                let _ = compute(self.dummy_key.expose_secret(), None, &self.algorithm, self.length);
+                let _ = compute(
+                    self.dummy_key.expose_secret(),
+                    None,
+                    &self.algorithm,
+                    self.length,
+                );
                 return Ok(false);
             }
         };
@@ -110,7 +125,10 @@ pub(crate) fn compute<T: AsRef<[u8]>>(
     algorithm: &ChecksumAlgo,
     length: usize,
 ) -> String {
-    debug_assert!(length > 0, "compute() called with length 0; caller should guard");
+    debug_assert!(
+        length > 0,
+        "compute() called with length 0; caller should guard"
+    );
     match algorithm {
         ChecksumAlgo::Blake3 => {
             let mut hasher = blake3::Hasher::new();
@@ -127,9 +145,9 @@ pub(crate) fn compute<T: AsRef<[u8]>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ApiKeyManagerV0, HashConfig, KeyConfig, Separator};
-    use crate::{config::KeyPrefix, generator::KeyGenerator, SecureStringExt};
     use crate::secure::new_secure_string;
+    use crate::{config::KeyPrefix, generator::KeyGenerator, SecureStringExt};
+    use crate::{ApiKeyManagerV0, HashConfig, KeyConfig, Separator};
 
     #[test]
     fn test_checksum_generation_with_dot_separator() {
@@ -140,7 +158,9 @@ mod tests {
         let generator = KeyGenerator::new(prefix, config.clone());
         let key = generator.generate(env, None).unwrap();
 
-        let dummy = generator.generate(crate::config::Environment::Production, None).unwrap();
+        let dummy = generator
+            .generate(crate::config::Environment::Production, None)
+            .unwrap();
         let verifier = ChecksumVerifier::new(&config, dummy);
 
         // Verify checksum is separated by '.' (enabled by default)
@@ -231,7 +251,9 @@ mod tests {
         let config_slash = KeyConfig::default().with_separator(Separator::Slash);
         let generator_slash = KeyGenerator::new(prefix.clone(), config_slash.clone());
         let key_slash = generator_slash.generate(env.clone(), None).unwrap();
-        let dummy_slash = generator_slash.generate(crate::config::Environment::Production, None).unwrap();
+        let dummy_slash = generator_slash
+            .generate(crate::config::Environment::Production, None)
+            .unwrap();
         let verifier_slash = ChecksumVerifier::new(&config_slash, dummy_slash);
         assert!(key_slash.as_str().contains('/'));
         assert!(!key_slash.as_str().contains('~'));
@@ -241,7 +263,9 @@ mod tests {
         let config_dash = KeyConfig::default().with_separator(Separator::Dash);
         let generator_dash = KeyGenerator::new(prefix.clone(), config_dash.clone());
         let key_dash = generator_dash.generate(env.clone(), None).unwrap();
-        let dummy_dash = generator_dash.generate(crate::config::Environment::Production, None).unwrap();
+        let dummy_dash = generator_dash
+            .generate(crate::config::Environment::Production, None)
+            .unwrap();
         let verifier_dash = ChecksumVerifier::new(&config_dash, dummy_dash);
         assert!(key_dash.as_str().contains('-'));
         // Checksum is always separated by dot

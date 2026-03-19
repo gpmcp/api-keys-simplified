@@ -73,9 +73,7 @@ impl SecureStringExt for SecureString {
     }
 
     fn eq(&self, other: &Self) -> bool {
-        self.expose_secret()
-            .ct_eq(other.expose_secret())
-            .into()
+        self.expose_secret().ct_eq(other.expose_secret()).into()
     }
 
     fn as_str(&self) -> &str {
@@ -94,7 +92,6 @@ impl SecureStringExt for SecureString {
 pub(crate) fn new_secure_string(s: String) -> SecureString {
     SecureString::from(s.into_bytes())
 }
-
 
 #[cfg(test)]
 mod tests {

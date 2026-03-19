@@ -1,5 +1,5 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
 use api_keys_simplified::SecureStringExt;
+use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
 
 #[test]
 fn test_custom_entropy() {

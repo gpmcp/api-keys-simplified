@@ -245,11 +245,8 @@ impl ApiKeyManagerV0 {
             return Ok(KeyStatus::Invalid);
         }
 
-        self.validator.verify(
-            key.as_str(),
-            stored_hash.as_ref(),
-            self.expiry_grace_period,
-        )
+        self.validator
+            .verify(key.as_str(), stored_hash.as_ref(), self.expiry_grace_period)
     }
 
     pub fn verify_checksum(&self, key: &SecureString) -> Result<bool> {

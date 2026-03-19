@@ -47,10 +47,12 @@ fn test_verification_with_wrong_key() {
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.expose_hash().hash();
 
-    let wrong1 = api_keys_simplified::SecureString::from("completely_wrong_key".to_string().into_bytes());
+    let wrong1 =
+        api_keys_simplified::SecureString::from("completely_wrong_key".to_string().into_bytes());
     assert_eq!(generator.verify(&wrong1, hash).unwrap(), KeyStatus::Invalid);
 
-    let wrong2 = api_keys_simplified::SecureString::from("sk_live_wrongrandomdata".to_string().into_bytes());
+    let wrong2 =
+        api_keys_simplified::SecureString::from("sk_live_wrongrandomdata".to_string().into_bytes());
     assert_eq!(generator.verify(&wrong2, hash).unwrap(), KeyStatus::Invalid);
 }
 
