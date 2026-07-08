@@ -268,7 +268,10 @@ impl Argon2Params {
 /// The pepper in [`HashAlgo::HmacSha256`] MUST be stored separately from the key
 /// database (environment variable, secrets manager, or HSM), never alongside the
 /// hashes.
-#[derive(Clone)]
+///
+/// `Debug` is safe to derive: the pepper is a [`SecureString`], whose own
+/// `Debug` impl redacts its contents.
+#[derive(Clone, Debug)]
 pub enum HashAlgo {
     /// Fast SHA-256 digest of the key. Suitable for high-entropy keys.
     Sha256,
@@ -276,17 +279,6 @@ pub enum HashAlgo {
     HmacSha256 { pepper: SecureString },
     /// Slow, memory-hard Argon2id. Opt-in.
     Argon2id(Argon2Params),
-}
-
-impl std::fmt::Debug for HashAlgo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // SECURITY: never print the pepper.
-        match self {
-            HashAlgo::Sha256 => write!(f, "Sha256"),
-            HashAlgo::HmacSha256 { .. } => write!(f, "HmacSha256 {{ pepper: <redacted> }}"),
-            HashAlgo::Argon2id(p) => write!(f, "Argon2id({p:?})"),
-        }
-    }
 }
 
 /// A fully validated, immutable configuration.
@@ -815,8 +807,9 @@ mod tests {
         let algo = HashAlgo::HmacSha256 {
             pepper: SecureString::from("super-secret-pepper".to_string()),
         };
+        // SecureString's own Debug redacts the contents, so the derived Debug
+        // must never expose the pepper.
         let dbg = format!("{algo:?}");
-        assert!(dbg.contains("<redacted>"));
         assert!(!dbg.contains("super-secret-pepper"));
     }
 
