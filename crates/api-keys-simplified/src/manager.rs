@@ -43,7 +43,7 @@ impl ApiKeyManager {
     /// keep verification timing flat.
     pub fn new(config: ValidatedConfig) -> Result<Self, InitError> {
         let generator = Generator::new(config.clone());
-        let hasher = KeyHasher::new(config.hash());
+        let hasher = KeyHasher::new(config.hash().clone());
 
         // One-time dummy key/hash for timing-attack protection in the verifier.
         let dummy_key = generator.raw_key(Environment::Production, None)?;

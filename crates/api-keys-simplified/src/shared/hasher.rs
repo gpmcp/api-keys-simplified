@@ -1,10 +1,15 @@
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2, Params, Version,
 };
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 
-use crate::config::Argon2Params;
+use crate::config::{Argon2Params, HashAlgo};
 use crate::shared::secure::{ExposeSecret, SecureString};
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Error produced by the shared hashing primitive.
 ///
@@ -22,73 +27,57 @@ impl HashError {
 
 type Result<T> = std::result::Result<T, HashError>;
 
+/// Hashes and verifies keys according to a configured [`HashAlgo`].
+///
+/// The stored-hash string is **self-describing**: each algorithm produces a
+/// tagged string (`$argon2id$…`, `sha256$<hex>`, `hmac-sha256$<hex>`) so
+/// [`KeyHasher::verify`] can dispatch on the stored value's prefix without any
+/// external "which algorithm" state. This lets a database hold hashes from
+/// multiple algorithms (e.g. during a migration) and still verify correctly.
 #[derive(Clone)]
 pub struct KeyHasher {
-    config: Argon2Params,
+    algo: HashAlgo,
 }
 
 impl KeyHasher {
-    pub fn new(config: Argon2Params) -> Self {
-        Self { config }
+    pub fn new(algo: HashAlgo) -> Self {
+        Self { algo }
     }
 
-    /// Hashes an API key using Argon2id with a randomly generated salt.
+    /// Hashes an API key with the configured algorithm.
     ///
     /// Returns a tuple containing:
-    /// - A stable key ID (deterministic, derived from the key via BLAKE3)
-    /// - The Argon2id PHC-formatted hash string (non-deterministic due to random salt)
+    /// - A stable key ID (deterministic BLAKE3-derived id, independent of the
+    ///   hash algorithm — see [`KeyHasher::generate_key_id`]).
+    /// - The self-describing, tagged stored-hash string to persist:
+    ///   - `HashAlgo::Sha256`      → `sha256$<hex64>`
+    ///   - `HashAlgo::HmacSha256`  → `hmac-sha256$<hex64>`
+    ///   - `HashAlgo::Argon2id`    → native PHC `$argon2id$v=19$m=..,t=..,p=..$<salt>$<hash>`
     ///
-    /// The key ID is a 32-character hex string (16 bytes of BLAKE3 hash) that uniquely
-    /// identifies the key. It never changes for the same key, making it perfect for:
-    /// - Database indexing and lookups
-    /// - Key rotation tracking
-    /// - Audit logs
-    ///
-    /// The PHC hash includes:
-    /// - Algorithm identifier (argon2id)
-    /// - Version
-    /// - Parameters (memory cost, time cost, parallelism)
-    /// - Salt (base64-encoded, embedded in the hash string)
-    /// - Hash output (base64-encoded)
-    ///
-    /// Each call generates a new random salt, so hashing the same key multiple
-    /// times will produce different PHC hashes but the same key ID. To reproduce
-    /// the same hash, use `hash_with_phc()` with the original PHC hash string to
-    /// extract and reuse the salt.
-    ///
-    /// # PHC Format
-    ///
-    /// The returned string follows the PHC format:
-    /// `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret};
-    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
-    /// # let key = manager.generate(Environment::production()).unwrap();
-    /// // Hashing is done automatically when generating keys
-    /// // The hash is stored in PHC format in the returned ApiKey
-    /// let hash_data = key.expose_hash();
-    /// println!("Key ID: {}", hash_data.key_id());  // Stable identifier
-    /// println!("Hash: {}", hash_data.hash());      // PHC format with salt
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
+    /// SHA-256 and HMAC-SHA256 are deterministic (no salt); Argon2id embeds a
+    /// fresh random salt so its output differs each call while the key ID stays
+    /// constant.
     pub fn hash(&self, key: &SecureString) -> Result<(String, String)> {
-        // Generate stable key ID from the key itself using BLAKE3
         let key_id = self.generate_key_id(key);
+        let key_bytes = key.expose_secret().as_bytes();
 
-        // Generate salt using OS cryptographic random source
-        let mut salt_bytes = [0u8; 32];
-        getrandom::fill(&mut salt_bytes)
-            .map_err(|e| HashError::new(format!("Failed to generate salt: {}", e)))?;
+        let stored = match &self.algo {
+            HashAlgo::Sha256 => format!("sha256${}", hex_sha256(key_bytes)),
+            HashAlgo::HmacSha256 { pepper } => {
+                format!("hmac-sha256${}", hex_hmac(pepper, key_bytes)?)
+            }
+            HashAlgo::Argon2id(params) => {
+                // Random salt from the OS CSPRNG, embedded in the PHC string.
+                let mut salt_bytes = [0u8; 32];
+                getrandom::fill(&mut salt_bytes)
+                    .map_err(|e| HashError::new(format!("Failed to generate salt: {}", e)))?;
+                let salt = SaltString::encode_b64(&salt_bytes)
+                    .map_err(|e| HashError::new(e.to_string()))?;
+                argon2_hash(params, key, &salt)?
+            }
+        };
 
-        let salt =
-            SaltString::encode_b64(&salt_bytes).map_err(|e| HashError::new(e.to_string()))?;
-
-        let phc_hash = self.hash_with_salt_string(key, &salt)?;
-
-        Ok((key_id, phc_hash))
+        Ok((key_id, stored))
     }
 
     /// Generates a stable, deterministic key ID from an API key.
@@ -135,85 +124,139 @@ impl KeyHasher {
         hash.to_hex()[..32].to_string()
     }
 
-    /// Hashes an API key using Argon2id with a salt extracted from a PHC hash string.
-    /// This is useful when you need to regenerate the same hash from the same key,
-    /// ensuring deterministic hashing for verification or testing purposes. The salt
-    /// is extracted from the provided PHC-formatted hash string.
+    /// Deterministically reproduces a stored hash for the same key.
     ///
-    /// Returns a tuple containing:
-    /// - A stable key ID (deterministic, same as from `hash()`)
-    /// - The Argon2id PHC hash string (matches original due to same salt)
+    /// - For `Sha256` / `HmacSha256`, hashing is already deterministic, so the
+    ///   `existing` argument is ignored and the same string is recomputed.
+    /// - For `Argon2id`, the salt is extracted from the provided PHC string and
+    ///   reused so the output matches the original.
     ///
-    /// # Parameters
-    ///
-    /// * `key` - The API key to hash
-    /// * `phc_hash` - An existing PHC-formatted hash string to extract the salt from
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, SecureString, ApiKey};
-    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
-    /// # let key1 = manager.generate(Environment::production()).unwrap();
-    /// // Regenerate the same hash using the salt from the original hash
-    /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
-    ///     .into_hashed_with_phc(manager.hasher(), key1.expose_hash().hash())
-    ///     .unwrap();
-    ///
-    /// assert_eq!(key1.expose_hash(), key2.expose_hash());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn hash_with_phc(&self, key: &SecureString, phc_hash: &str) -> Result<(String, String)> {
-        // Generate stable key ID (same as in hash() method)
+    /// Useful for tests and hash-consistency checks.
+    pub fn hash_with_phc(&self, key: &SecureString, existing: &str) -> Result<(String, String)> {
         let key_id = self.generate_key_id(key);
+        let key_bytes = key.expose_secret().as_bytes();
 
-        // Parse the PHC hash to extract the salt
-        let parsed = PasswordHash::new(phc_hash)
-            .map_err(|e| HashError::new(format!("Invalid PHC hash: {}", e)))?;
+        let stored = match &self.algo {
+            HashAlgo::Sha256 => format!("sha256${}", hex_sha256(key_bytes)),
+            HashAlgo::HmacSha256 { pepper } => {
+                format!("hmac-sha256${}", hex_hmac(pepper, key_bytes)?)
+            }
+            HashAlgo::Argon2id(params) => {
+                let parsed = PasswordHash::new(existing)
+                    .map_err(|e| HashError::new(format!("Invalid PHC hash: {}", e)))?;
+                let salt = parsed
+                    .salt
+                    .ok_or_else(|| HashError::new("PHC hash missing salt"))?;
+                let salt_str = SaltString::from_b64(salt.as_str())
+                    .map_err(|e| HashError::new(format!("Invalid salt in PHC hash: {}", e)))?;
+                argon2_hash(params, key, &salt_str)?
+            }
+        };
 
-        let salt = parsed
-            .salt
-            .ok_or_else(|| HashError::new("PHC hash missing salt"))?;
-
-        // Convert the Salt to SaltString
-        let salt_str = SaltString::from_b64(salt.as_str())
-            .map_err(|e| HashError::new(format!("Invalid salt in PHC hash: {}", e)))?;
-
-        let phc_hash_result = self.hash_with_salt_string(key, &salt_str)?;
-
-        Ok((key_id, phc_hash_result))
+        Ok((key_id, stored))
     }
 
-    fn hash_with_salt_string(&self, key: &SecureString, salt: &SaltString) -> Result<String> {
-        let params = Params::new(
-            self.config.memory_cost,
-            self.config.time_cost,
-            self.config.parallelism,
-            None,
-        )
+    /// Verifies a key against a stored hash string.
+    ///
+    /// Dispatches on the stored string's tag/prefix, **not** on the configured
+    /// algorithm, so a database containing hashes from multiple algorithms
+    /// verifies correctly (e.g. during a migration). The only role the configured
+    /// algorithm plays is supplying the HMAC pepper when the stored hash is an
+    /// `hmac-sha256$` value.
+    ///
+    /// Uses constant-time comparison for the digest algorithms; Argon2's verifier
+    /// is constant-time internally.
+    pub(crate) fn verify(&self, key: &SecureString, stored_hash: &str) -> bool {
+        let key_bytes = key.expose_secret().as_bytes();
+
+        if let Some(hex) = stored_hash.strip_prefix("sha256$") {
+            let computed = hex_sha256(key_bytes);
+            return ct_eq_str(&computed, hex);
+        }
+
+        if let Some(hex) = stored_hash.strip_prefix("hmac-sha256$") {
+            // Requires the configured pepper; without it we cannot verify.
+            let HashAlgo::HmacSha256 { pepper } = &self.algo else {
+                return false;
+            };
+            let Ok(computed) = hex_hmac(pepper, key_bytes) else {
+                return false;
+            };
+            return ct_eq_str(&computed, hex);
+        }
+
+        if stored_hash.starts_with("$argon2id$") {
+            return match PasswordHash::new(stored_hash) {
+                Ok(parsed) => Argon2::default()
+                    .verify_password(key_bytes, &parsed)
+                    .is_ok(),
+                Err(_) => false,
+            };
+        }
+
+        // Unknown/malformed stored-hash tag.
+        false
+    }
+
+    /// Performs dummy hashing/verification work matching the configured algorithm
+    /// so early-rejection paths take similar time to a real verification.
+    pub(crate) fn dummy_verify(&self, dummy_key: &SecureString, dummy_hash: &str) {
+        let _ = self.verify(dummy_key, dummy_hash);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free helpers (algorithm implementations)
+// ---------------------------------------------------------------------------
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+fn hex_hmac(pepper: &SecureString, bytes: &[u8]) -> Result<String> {
+    let mut mac = HmacSha256::new_from_slice(pepper.expose_secret().as_bytes())
+        .map_err(|e| HashError::new(format!("invalid HMAC key: {e}")))?;
+    mac.update(bytes);
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+fn argon2_hash(params: &Argon2Params, key: &SecureString, salt: &SaltString) -> Result<String> {
+    let p = Params::new(
+        params.memory_cost,
+        params.time_cost,
+        params.parallelism,
+        None,
+    )
+    .map_err(|e| HashError::new(e.to_string()))?;
+
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, p);
+    let hash = argon2
+        .hash_password(key.expose_secret().as_bytes(), salt)
         .map_err(|e| HashError::new(e.to_string()))?;
 
-        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
+    // SECURITY: hashes are meant to be stored raw; no SecureString needed.
+    Ok(hash.to_string())
+}
 
-        let hash = argon2
-            .hash_password(key.expose_secret().as_bytes(), salt)
-            .map_err(|e| HashError::new(e.to_string()))?;
-
-        // SECURITY: Hashes are meant to be stored raw
-        // We do NOT need to use SecureString here.
-        Ok(hash.to_string())
-    }
+/// Constant-time equality of two hex strings (as byte slices).
+fn ct_eq_str(a: &str, b: &str) -> bool {
+    a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn argon() -> KeyHasher {
+        KeyHasher::new(HashAlgo::Argon2id(Argon2Params::balanced()))
+    }
+
     #[test]
     fn test_hashing() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = Argon2Params::balanced();
-        let hasher = KeyHasher::new(config);
+        let hasher = argon();
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
         let (key_id2, hash2) = hasher.hash(&key).unwrap();
@@ -230,21 +273,118 @@ mod tests {
     fn test_different_configs() {
         let key = SecureString::from("test_key".to_string());
 
-        let balanced_hasher = KeyHasher::new(Argon2Params::balanced());
+        let balanced_hasher = KeyHasher::new(HashAlgo::Argon2id(Argon2Params::balanced()));
         let (_key_id1, balanced_hash) = balanced_hasher.hash(&key).unwrap();
 
-        let secure_hasher = KeyHasher::new(Argon2Params::high_security());
+        let secure_hasher = KeyHasher::new(HashAlgo::Argon2id(Argon2Params::high_security()));
         let (_key_id2, secure_hash) = secure_hasher.hash(&key).unwrap();
 
         assert!(!balanced_hash.is_empty());
         assert!(!secure_hash.is_empty());
     }
 
+    // -- New-algorithm coverage -------------------------------------------
+
+    #[test]
+    fn sha256_is_tagged_deterministic_and_verifies() {
+        let key = SecureString::from("sk-live-abc".to_string());
+        let hasher = KeyHasher::new(HashAlgo::Sha256);
+        let (id1, h1) = hasher.hash(&key).unwrap();
+        let (id2, h2) = hasher.hash(&key).unwrap();
+
+        assert!(h1.starts_with("sha256$"));
+        assert_eq!(h1, h2, "sha256 is deterministic");
+        assert_eq!(id1, id2);
+        assert_eq!(h1.strip_prefix("sha256$").unwrap().len(), 64); // 32-byte hex
+        assert!(hasher.verify(&key, &h1));
+        assert!(!hasher.verify(&SecureString::from("wrong".to_string()), &h1));
+    }
+
+    #[test]
+    fn hmac_sha256_is_keyed_and_verifies() {
+        let pepper = SecureString::from("server-pepper".to_string());
+        let hasher = KeyHasher::new(HashAlgo::HmacSha256 {
+            pepper: pepper.clone(),
+        });
+        let key = SecureString::from("sk-live-abc".to_string());
+        let (_id, h) = hasher.hash(&key).unwrap();
+
+        assert!(h.starts_with("hmac-sha256$"));
+        assert!(hasher.verify(&key, &h));
+
+        // A different pepper must NOT verify the same stored hash.
+        let other = KeyHasher::new(HashAlgo::HmacSha256 {
+            pepper: SecureString::from("different-pepper".to_string()),
+        });
+        assert!(!other.verify(&key, &h));
+
+        // Plain sha256 differs from hmac for the same input.
+        let sha = KeyHasher::new(HashAlgo::Sha256);
+        let (_i, sh) = sha.hash(&key).unwrap();
+        assert_ne!(sh.strip_prefix("sha256$"), h.strip_prefix("hmac-sha256$"));
+    }
+
+    #[test]
+    fn verify_dispatches_on_stored_prefix_not_config() {
+        // The self-describing format means verification dispatches on the STORED
+        // hash's tag, independent of the configured algo. This is what enables
+        // mixed-algo databases during a migration: any configured (unkeyed)
+        // hasher verifies another unkeyed algo's stored hash for the same key.
+        let key = SecureString::from("sk-live-abc".to_string());
+        let sha = KeyHasher::new(HashAlgo::Sha256);
+        let argon = argon();
+
+        let (_i, sha_hash) = sha.hash(&key).unwrap();
+        let (_j, argon_hash) = argon.hash(&key).unwrap();
+
+        // Cross-config verification of unkeyed hashes SUCCEEDS (by design).
+        assert!(argon.verify(&key, &sha_hash));
+        assert!(sha.verify(&key, &argon_hash));
+
+        // But the wrong key still fails, whichever config is used.
+        let wrong = SecureString::from("nope".to_string());
+        assert!(!argon.verify(&wrong, &sha_hash));
+        assert!(!sha.verify(&wrong, &argon_hash));
+    }
+
+    #[test]
+    fn malformed_and_keyed_without_pepper_are_rejected() {
+        let key = SecureString::from("sk-live-abc".to_string());
+        let sha = KeyHasher::new(HashAlgo::Sha256);
+
+        // Untagged / unknown stored hash -> rejected, no panic.
+        assert!(!sha.verify(&key, "garbage-no-tag"));
+        assert!(!sha.verify(&key, "md5$deadbeef"));
+
+        // An hmac-sha256$ stored hash cannot be verified by a hasher that has no
+        // pepper (e.g. a Sha256-configured verifier) -> rejected.
+        let hmac = KeyHasher::new(HashAlgo::HmacSha256 {
+            pepper: SecureString::from("p".to_string()),
+        });
+        let (_i, hmac_hash) = hmac.hash(&key).unwrap();
+        assert!(!sha.verify(&key, &hmac_hash));
+    }
+
+    #[test]
+    fn key_id_is_identical_across_algorithms() {
+        let key = SecureString::from("sk-live-abc".to_string());
+        let sha = KeyHasher::new(HashAlgo::Sha256);
+        let hmac = KeyHasher::new(HashAlgo::HmacSha256 {
+            pepper: SecureString::from("p".to_string()),
+        });
+        let argon = argon();
+
+        let a = sha.generate_key_id(&key);
+        let b = hmac.generate_key_id(&key);
+        let c = argon.generate_key_id(&key);
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+    }
+
     #[test]
     fn test_hash_with_same_salt() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = Argon2Params::balanced();
-        let hasher = KeyHasher::new(config);
+        let hasher = argon();
 
         // Get a PHC hash from the first hash
         let (key_id_original, phc_hash) = hasher.hash(&key).unwrap();
@@ -264,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_key_id_properties() {
-        let hasher = KeyHasher::new(Argon2Params::balanced());
+        let hasher = argon();
         let key1 = SecureString::from("sk-live-key1".to_string());
         let key2 = SecureString::from("sk-live-key2".to_string());
 
@@ -285,7 +425,7 @@ mod tests {
     #[test]
     fn test_key_id_stability_with_hashing() {
         let key = SecureString::from("sk-live-test".to_string());
-        let hasher = KeyHasher::new(Argon2Params::balanced());
+        let hasher = argon();
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
         let (key_id2, hash2) = hasher.hash(&key).unwrap();

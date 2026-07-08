@@ -223,7 +223,7 @@ mod tests {
     /// without depending on the manager layer.
     fn parts(cfg: ValidatedConfig) -> (Generator, KeyHasher, Verifier) {
         let generator = Generator::new(cfg.clone());
-        let hasher = KeyHasher::new(cfg.hash());
+        let hasher = KeyHasher::new(cfg.hash().clone());
         let dummy_key = generator.raw_key(Environment::Production, None).unwrap();
         let (_id, dummy_hash) = hasher.hash(&dummy_key).unwrap();
         let verifier = Verifier::new(&cfg, dummy_key, &dummy_hash);
