@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.dependencies]
-argon2 = "0.5"
+argon2 = { version = "0.5", features = ["std"] }
 password-hash = "0.5"
 subtle = "2.6.1"
 getrandom = { version = "0.3", features = ["std"] }
@@ -18,3 +18,7 @@ secrecy = { version = "0.10.3" }
 regex = "1.11"
 chrono = { version = "0.4.42", features = [] }
 nom = "8.0.0"
+tailcall-valid = "0.1.4"
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"

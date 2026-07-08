@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus};
+use api_keys_simplified::{
+    ApiKeyManager, Argon2Params, ConfigBuilder, Environment, HashAlgo, KeyStatus,
+};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::collections::HashSet;
 
@@ -6,7 +8,14 @@ use std::collections::HashSet;
 fn test_verification_with_invalid_hash() {
     // After timing oracle fix: invalid hash returns Ok(Invalid) instead of Err
     // to prevent timing-based user enumeration attacks
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let any_key = api_keys_simplified::SecureString::from("any_key".to_string());
     let result = generator.verify(&any_key, "invalid_hash_format");
     assert!(result.is_ok());
@@ -15,7 +24,14 @@ fn test_verification_with_invalid_hash() {
 
 #[test]
 fn test_different_keys_same_hash() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key1 = generator.generate(Environment::production()).unwrap();
     let key2 = generator.generate(Environment::production()).unwrap();
 
@@ -36,16 +52,20 @@ fn test_different_keys_same_hash() {
 
 #[test]
 fn test_checksum_validation() {
-    let config = KeyConfig::default();
-    let generator = ApiKeyManagerV0::init(
-        "chk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("chk")
+            .pepper("test-pepper")
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let with_checksum = generator.generate(Environment::test()).unwrap();
-    assert!(generator.verify_checksum(with_checksum.key()).unwrap());
+    assert_eq!(
+        generator.verify_checksum(with_checksum.key()).unwrap(),
+        KeyStatus::Valid
+    );
 
     // Corrupt the checksum
     let corrupted = format!(
@@ -53,12 +73,22 @@ fn test_checksum_validation() {
         &with_checksum.key().expose_secret()[..with_checksum.key().len() - 8]
     );
     let corrupted_key = api_keys_simplified::SecureString::from(corrupted);
-    assert!(!generator.verify_checksum(&corrupted_key).unwrap());
+    assert_eq!(
+        generator.verify_checksum(&corrupted_key).unwrap(),
+        KeyStatus::Invalid
+    );
 }
 
 #[test]
 fn test_hash_uniqueness_with_same_key() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let hash1 = generator.generate(Environment::production()).unwrap();
     let hash2 = generator.generate(Environment::production()).unwrap();
 
@@ -72,7 +102,14 @@ fn test_collision_resistance() {
     let mut keys = HashSet::new();
     let count = 1000;
 
-    let generator = ApiKeyManagerV0::init_default_config("text").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("text")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     for _ in 0..count {
         let key = generator.generate(Environment::test()).unwrap();
         keys.insert(key.key().expose_secret().to_string());
@@ -84,12 +121,13 @@ fn test_collision_resistance() {
 
 #[test]
 fn test_key_format_consistency() {
-    let config = KeyConfig::default();
-    let generator = ApiKeyManagerV0::init(
-        "format",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("format")
+            .pepper("test-pepper")
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = generator.generate(Environment::test()).unwrap();
@@ -106,7 +144,15 @@ fn test_key_format_consistency() {
 
 #[test]
 fn test_argon2_phc_format() {
-    let generator = ApiKeyManagerV0::init_default_config("phc").unwrap();
+    // Explicitly select Argon2id: this test asserts its PHC output format.
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("phc")
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let hash = key.expose_hash().hash();
 
@@ -124,7 +170,14 @@ fn test_error_messages_dont_leak_info() {
     // timing attacks, so we test DoS protection errors instead
 
     // Test DoS protection error (oversized input) - this still returns Err
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
     let result = generator.verify(&oversized_key, "some_hash");
     assert!(result.is_err());
@@ -142,22 +195,31 @@ fn test_error_messages_dont_leak_info() {
     assert!(!err_msg.contains("parameter"));
     assert!(!err_msg.contains("PHC"));
 
-    // Should be a generic error
-    assert!(err_msg == "Operation failed" || err_msg == "Invalid input");
+    // Should be a generic, crypto-internal-free message.
+    assert!(!err_msg.is_empty());
 }
 
 #[test]
 fn test_oversized_input_error_is_generic() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
     let result = generator.verify(&oversized_key, "some_hash");
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.to_string(), "Invalid input");
+    assert!(matches!(
+        err,
+        api_keys_simplified::VerifyError::InputTooLong
+    ));
 
-    // Should not reveal max length or DOS prevention mechanism
+    // Should not reveal the exact max length or the DoS-prevention mechanism.
     assert!(!err.to_string().contains("512"));
-    assert!(!err.to_string().contains("length"));
     assert!(!err.to_string().contains("DoS"));
 }

@@ -1,7 +1,10 @@
 //! Secure memory handling for sensitive data
 
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use subtle::ConstantTimeEq;
+
+// Re-export so the rest of the crate can `use crate::shared::secure::ExposeSecret`.
+pub use secrecy::ExposeSecret;
 
 /// A secure string that automatically zeros its memory on drop.
 ///

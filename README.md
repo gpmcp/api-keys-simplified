@@ -10,26 +10,36 @@ A secure Rust library for generating and validating API keys with built-in secur
 ## Features
 
 - **Cryptographically secure** key generation (192-bit entropy)
-- **Argon2id hashing** (memory-hard, OWASP recommended)
+- **Pluggable hashing** — HMAC-SHA256 (keyed default, needs a pepper), SHA-256
+  (unkeyed), or Argon2id. Fast hashes are appropriate for high-entropy keys per
+  NIST SP 800-63B
 - **BLAKE3 checksums** (2900x faster DoS protection)
 - **Constant-time verification** (prevents timing attacks)
 - **Automatic memory zeroing** (protects sensitive data)
 - **Key expiration** (time-based access control)
 - **Key revocation** (instant access denial via stored hash)
+- **Configurable token format** — separator (`-` `_` `/` `~`), custom/optional
+  environment, and checksum length in bits
 
 ## Quick Example
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, ExposeSecret};
 
-// Generate with checksum (enabled by default - 2900x faster DoS protection)
-let manager = ApiKeyManager::init_default_config("myapp_sk")?;
+// Build a validated config. The default hash is keyed HMAC-SHA256, so supply a
+// server-side pepper (store it separately from your key database). Checksum is
+// enabled by default for 2900x faster DoS protection.
+let config = ConfigBuilder::new()
+    .prefix("myapp_sk")
+    .pepper(std::env::var("API_KEY_PEPPER")?)
+    .build()?;
+let manager = ApiKeyManager::new(config)?;
 let api_key = manager.generate(Environment::production())?;
 
 // Show to user once (they must save it)
 println!("API Key: {}", api_key.key().expose_secret());
 
-// Store hash in database (PHC format includes salt)
+// Store the self-describing hash string in your database
 let hash_data = api_key.expose_hash();
 database.save(hash_data.hash());
 

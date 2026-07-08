@@ -1,4 +1,4 @@
-use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus, SecureString};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, SecureString};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 /// Integration tests for secure memory handling
@@ -8,7 +8,14 @@ mod secure_integration_tests {
 
     #[test]
     fn test_api_key_debug_redacts_key() {
-        let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+        let generator = ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("sk")
+                .pepper("test-pepper")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
         let api_key = generator.generate(Environment::production()).unwrap();
 
         // Debug output should not expose the actual key
@@ -38,7 +45,14 @@ mod secure_integration_tests {
     #[test]
     fn test_api_key_can_be_verified_after_clone() {
         // Verify that API key functionality works correctly
-        let generator = ApiKeyManagerV0::init_default_config("text").unwrap();
+        let generator = ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("text")
+                .pepper("test-pepper")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
         let api_key = generator.generate(Environment::dev()).unwrap();
 
         // Create another key with the same data for testing
@@ -86,7 +100,14 @@ mod secure_integration_tests {
     #[test]
     fn test_api_key_lifecycle_with_secure_memory() {
         // Full lifecycle test demonstrating secure memory usage
-        let generator = ApiKeyManagerV0::init_default_config("api").unwrap();
+        let generator = ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("api")
+                .pepper("test-pepper")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
         let key1 = generator.generate(Environment::production()).unwrap();
         let key_str = key1.key().expose_secret().to_string();
         let hash_str = key1.expose_hash().hash().to_string();
@@ -110,7 +131,14 @@ mod secure_integration_tests {
         // Create multiple keys to verify zeroing works consistently
         let mut keys = Vec::new();
         for i in 0..5 {
-            let gen = ApiKeyManagerV0::init_default_config(format!("key{}", i)).unwrap();
+            let gen = ApiKeyManager::new(
+                ConfigBuilder::new()
+                    .prefix(format!("key{}", i))
+                    .pepper("test-pepper")
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
             keys.push(gen.generate(Environment::dev()).unwrap());
         }
 

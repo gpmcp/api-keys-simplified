@@ -26,6 +26,10 @@ secrecy.workspace = true
 regex.workspace = true
 chrono.workspace = true
 nom.workspace = true
+tailcall-valid.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+hex.workspace = true
 
 [features]
 default = []

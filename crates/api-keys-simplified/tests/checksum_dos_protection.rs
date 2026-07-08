@@ -1,13 +1,20 @@
 use api_keys_simplified::ExposeSecret;
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
+    ApiKeyManager, Argon2Params, ConfigBuilder, Environment, HashAlgo, KeyStatus, SecureString,
 };
 use std::time::Instant;
 
 #[test]
 fn test_checksum_prevents_expensive_verification() {
     // This test verifies VULN-1 fix: checksum validation happens BEFORE Argon2
-    let generator = ApiKeyManagerV0::init_default_config("dos").unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("dos")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Generate a valid key with checksum
     let valid_key = generator.generate(Environment::test()).unwrap();
@@ -42,13 +49,16 @@ fn test_checksum_prevents_expensive_verification() {
 
 #[test]
 fn test_valid_checksum_proceeds_to_argon2() {
-    // Verify that valid checksums still go through Argon2 verification
-    let config = KeyConfig::default().disable_checksum();
-    let generator = ApiKeyManagerV0::init(
-        "verify",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    // Verify that valid checksums still go through Argon2 verification.
+    // This test pins Argon2id because it asserts the *slow* hash timing.
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("verify")
+            .no_checksum()
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
@@ -78,20 +88,26 @@ fn test_valid_checksum_proceeds_to_argon2() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_dos_protection_comparison() {
-    // Compare DoS resistance: with vs without checksum
-    let with_checksum = ApiKeyManagerV0::init(
-        "dos1",
-        KeyConfig::default(),
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    // Compare DoS resistance: with vs without checksum. Both pin Argon2id so the
+    // "without checksum" path pays the full slow-hash cost the checksum avoids.
+    let with_checksum = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("dos1")
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
-    let without_checksum = ApiKeyManagerV0::init(
-        "dos2",
-        KeyConfig::default().disable_checksum(),
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let without_checksum = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("dos2")
+            .no_checksum()
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
@@ -135,11 +151,14 @@ fn test_dos_protection_comparison() {
 fn test_without_checksum_still_works() {
     // Verify that when checksum is disabled, verify() still works
     // (but doesn't get DoS protection)
-    let generator = ApiKeyManagerV0::init(
-        "nochk",
-        KeyConfig::default().disable_checksum(),
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("nochk")
+            .pepper("test-pepper")
+            .no_checksum()
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 

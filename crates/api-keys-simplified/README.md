@@ -10,23 +10,55 @@ A secure, Rust library for generating and validating API keys with built-in secu
 ## What It Does
 
 - **Generate** cryptographically secure API keys (192-bit entropy default)
-- **Hash** keys using Argon2id (memory-hard, OWASP recommended)
+- **Hash** keys with a pluggable algorithm — keyed **HMAC-SHA256** (default,
+  needs a pepper), fast unkeyed **SHA-256**, or memory-hard **Argon2id**
 - **Checksum** keys with BLAKE3 for fast DoS protection (2900x speedup)
 - **Verify** keys with constant-time comparison (prevents timing attacks)
 - **Protect** sensitive data with automatic memory zeroing
 - **Expire** keys automatically based on embedded timestamps
 - **Revoke** keys instantly by marking hashes as invalid
+- **Shape** the token to your brand — choose the separator (`-` `_` `/` `~`),
+  a custom or omitted environment segment, and a checksum length in bits
+
+## Token format
+
+Keys are laid out as `prefix<sep>[v<n><sep>]env<sep>data[.expiry][.checksum]`.
+Every part is configurable on the builder:
+
+```rust
+use api_keys_simplified::{ConfigBuilder, Separator, ChecksumAlgo, ChecksumBits};
+
+let config = ConfigBuilder::new()
+    .prefix("sk")
+    .separator(Separator::Underscore)          // sk_live_...  (Stripe/GitHub style)
+    .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(128))  // length in BITS
+    .build()?;
+
+// Fold the environment into the prefix instead of a separate segment:
+let config = ConfigBuilder::new().prefix("sk").no_environment().build()?;
+// -> sk_<data>.<checksum>
+
+// Or use your own environment label:
+// manager.generate(Environment::custom("prod"))  ->  sk-prod-<data>.<checksum>
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Quick Start
 
 ### Basic Usage
 
 ```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus, SecureString};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Initialize with checksum (out of the box DoS protection)
-    let manager = ApiKeyManagerV0::init_default_config("gpmcp_sk")?;
+    // 1. Build a validated config, then initialize the manager.
+    //    The default hash is keyed HMAC-SHA256, so supply a server-side pepper
+    //    (store it separately from your key database). Checksum is on by default.
+    let config = ConfigBuilder::new()
+        .prefix("gpmcp_sk")
+        .pepper(std::env::var("API_KEY_PEPPER")?)
+        .build()?;
+    let manager = ApiKeyManager::new(config)?;
 
     // 2. Generate a new API key
     let api_key = manager.generate(Environment::production())?;
@@ -112,9 +144,44 @@ Common API key security mistakes:
 ### 🔒 Cryptographic Strength
 
 - **RNG:** OS-level CSPRNG via `getrandom` crate
-- **Hashing:** Argon2id (Password Hashing Competition winner)
+- **Hashing:** pluggable via `HashAlgo` — HMAC-SHA256 (default, keyed with a
+  server pepper), SHA-256 (unkeyed), or Argon2id (memory-hard)
 - **Entropy:** 192 bits default (NIST compliant through 2030+)
-- **Memory-Hard:** Prevents GPU/ASIC brute force attacks
+- **Standards:** per NIST SP 800-63B, high-entropy (≥128-bit) look-up secrets
+  only need an approved *fast* hash; the slow memory-hard hashers are for
+  low-entropy passwords. The default keys with a pepper so a leaked database
+  alone can't be used to verify keys.
+
+#### Choosing a hash algorithm
+
+```rust
+use api_keys_simplified::{ConfigBuilder, HashAlgo, Argon2Params};
+
+// Default: keyed HMAC-SHA256. Requires a server-side pepper, stored separately
+// from the key database (env var / secrets manager / HSM). A leaked database
+// alone cannot be used to verify keys.
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .pepper(std::env::var("API_KEY_PEPPER")?)
+    .build()?;
+
+// Unkeyed fast hash (no secret to manage):
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .hash(HashAlgo::Sha256)
+    .build()?;
+
+// Memory-hard Argon2id (or use ConfigBuilder::high_security()):
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+    .build()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The stored hash is self-describing (`sha256$…`, `hmac-sha256$…`, `$argon2id$…`),
+so verification dispatches on the stored value — a database may hold hashes from
+multiple algorithms during a migration.
 
 ### 🛡️ Side-Channel Protection
 
@@ -152,13 +219,18 @@ Common API key security mistakes:
 
 ```rust
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, 
+    ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, 
     KeyStatus, SecureString, ApiKey, Hash
 };
 use chrono::{Duration, Utc};
 
-// ✅ Checksums enabled by default (DoS protection - use .disable_checksum() to turn off)
-let manager = ApiKeyManagerV0::init_default_config("myapp_sk")?;
+// ✅ Checksums enabled by default (DoS protection - use .no_checksum() to turn off)
+// ✅ Default hash is keyed HMAC-SHA256 — supply a pepper (stored separately)
+let config = ConfigBuilder::new()
+    .prefix("myapp_sk")
+    .pepper(std::env::var("API_KEY_PEPPER")?)
+    .build()?;
+let manager = ApiKeyManager::new(config)?;
 
 // ✅ Never log keys (auto-redacted)
 let key = manager.generate(Environment::production())?;
@@ -177,7 +249,7 @@ let response = client.get("https://api.example.com")
     .send()?;
 
 // ✅ Implement key rotation
-fn rotate_key(manager: &ApiKeyManagerV0, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
+fn rotate_key(manager: &ApiKeyManager, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
     let new_key = manager.generate(Environment::production())?;
     db.revoke_old_keys(user_id)?;
     
@@ -202,7 +274,7 @@ fn revoke_key(user_id: u64, key_hash: &str) -> Result<(), Box<dyn std::error::Er
 
 // ✅ Check revocation status during verification
 fn verify_with_revocation(
-    manager: &ApiKeyManagerV0, 
+    manager: &ApiKeyManager, 
     key: &SecureString, 
     user_id: u64
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -247,21 +319,43 @@ cargo test --features expensive_tests  # Include timing analysis
 
 ## Error Handling
 
-```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, Error, ExposeSecret};
+The error type is split by operation: `ConfigBuilder::build()` returns `ConfigErrors`,
+`ApiKeyManager::new` returns `InitError`, `generate` returns `GenerateError`, and
+`verify` returns `VerifyError`.
 
-match ApiKeyManagerV0::init_default_config("sk") {
-    Ok(manager) => {
-        match manager.generate(Environment::production()) {
-            Ok(key) => println!("Success: {}", key.key().expose_secret()),
-            Err(Error::OperationFailed(op_err)) => {
-                // Operation errors contain details (use {:?} in logs for debugging)
-                eprintln!("Operation error: {}", op_err);
-            }
-            Err(e) => eprintln!("Generation error: {}", e),
+```rust
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, HashAlgo};
+
+// ConfigBuilder::build() accumulates and reports ALL configuration errors at once
+// (via ConfigErrors), rather than failing on the first problem. (The default
+// keyed HMAC-SHA256 also requires a `.pepper(...)`; omit it to see EmptyPepper.)
+let config = match ConfigBuilder::new().prefix("sk").hash(HashAlgo::Sha256).build() {
+    Ok(config) => config,
+    Err(config_errors) => {
+        // ConfigErrors::errors() returns a slice of every ConfigError that occurred
+        for err in config_errors.errors() {
+            eprintln!("Config error: {}", err);
         }
+        return;
     }
-    Err(e) => eprintln!("Init error: {}", e),
+};
+
+// ApiKeyManager::new returns InitError
+let manager = match ApiKeyManager::new(config) {
+    Ok(manager) => manager,
+    Err(init_err) => {
+        eprintln!("Init error: {}", init_err);
+        return;
+    }
+};
+
+// generate returns GenerateError
+match manager.generate(Environment::production()) {
+    Ok(key) => println!("Success: {}", key.key().expose_secret()),
+    Err(gen_err) => {
+        // Generation errors contain details (use {:?} in logs for debugging)
+        eprintln!("Generation error: {}", gen_err);
+    }
 }
 ```
 

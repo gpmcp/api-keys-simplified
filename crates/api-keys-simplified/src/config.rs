@@ -1,51 +1,69 @@
-use crate::error::ConfigError;
-use derive_getters::Getters;
+//! # Configuration layer (level 0)
+//!
+//! This is the base of the dependency tree. It defines every validated
+//! primitive (`Environment`, `KeyVersion`, `KeyPrefix`, `Separator`,
+//! `ChecksumAlgo`) plus the [`ConfigBuilder`] → [`ValidatedConfig`] flow.
+//!
+//! All configuration validation lives here and happens **once**, in
+//! [`ConfigBuilder::build`]. Unlike a fail-on-first-error chain, `build` uses the
+//! `tailcall-valid` applicative validator to accumulate **every** problem and
+//! return them together as [`ConfigErrors`].
+//!
+//! Holding a [`ValidatedConfig`] is proof that the configuration is sound; the
+//! generate / verify layers built on top of it cannot fail for config reasons.
+
+use std::time::Duration;
+
 use lazy_static::lazy_static;
 use regex::Regex;
-use strum::{Display, EnumIter, EnumString};
-use strum::{IntoEnumIterator, IntoStaticStr};
+use strum::{EnumString, IntoStaticStr};
+use tailcall_valid::{Cause, Valid, Validator};
+
+use crate::shared::secure::SecureString;
+
+lazy_static! {
+    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = vec![
+        Environment::Development,
+        Environment::Test,
+        Environment::Staging,
+        Environment::Production,
+    ];
+    // Regex to detect version patterns: 'v' followed by one or more digits.
+    static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Primitives
+// ---------------------------------------------------------------------------
 
 /// Key version for backward compatibility and migration.
-/// Allows different key formats to coexist during transitions.
 ///
-/// Version 0 represents no explicit version (backward compatible with existing keys).
-/// Format: prefix{sep}env{sep}base64[.checksum]
-///
-/// Versions 1+ will have version between prefix and environment:
-/// Format: prefix{sep}v{N}{sep}env{sep}base64[.checksum]
+/// Version 0 (`NONE`) produces an unversioned key: `prefix{sep}env{sep}data`.
+/// Versions 1+ embed `vN` between prefix and environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyVersion(u32);
 
 impl KeyVersion {
-    /// No version in key
-    /// Format: prefix-env-data.checksum
+    /// No version in the key.
     pub const NONE: Self = KeyVersion(0);
-
-    /// Version 1 - First versioned format
-    /// Format: prefix-v1-env-data.checksum
+    /// Version 1 — first versioned format.
     pub const V1: Self = KeyVersion(1);
-
-    /// Version 2
-    /// Format: prefix-v2-env-data.checksum
+    /// Version 2.
     pub const V2: Self = KeyVersion(2);
 
-    /// Creates a new key version with the given number
     pub const fn new(version: u32) -> Self {
         KeyVersion(version)
     }
 
-    /// Returns the version number
     pub const fn number(&self) -> u32 {
         self.0
     }
 
-    /// Returns true if this version should be included in the key
     pub const fn is_versioned(&self) -> bool {
         self.0 > 0
     }
 
-    /// Returns the version component string for key generation
-    /// Returns empty string for version 0 (backward compatibility)
+    /// The `vN` component string, or empty for version 0.
     pub fn component(&self) -> String {
         if self.0 == 0 {
             String::new()
@@ -71,25 +89,21 @@ impl std::fmt::Display for KeyVersion {
     }
 }
 
-/// Deployment environment for API keys (dev/test/staging/live).
-/// Used to visually distinguish keys across different environments and prevent accidental misuse
-/// And allow users to set different Rate limits based on Environment.
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, Display, IntoStaticStr)]
+/// Deployment environment label embedded in a key.
+///
+/// The four built-ins serialize to `dev` / `test` / `staging` / `live`.
+/// [`Environment::Custom`] lets callers use their own label (e.g. `prod`,
+/// `sandbox`). The environment is opaque to verification, so a custom label
+/// round-trips without any verify-side change.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Environment {
-    #[strum(serialize = "dev")]
     Development,
-    #[strum(serialize = "test")]
     Test,
-    #[strum(serialize = "staging")]
     Staging,
-    #[strum(serialize = "live")]
     Production,
-}
-
-lazy_static! {
-    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
-    // Regex to detect version patterns: 'v' followed by one or more digits
-    static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
+    /// Caller-defined label. Must be validated at config/use time: non-empty,
+    /// ≤20 chars, `[a-z0-9]` only, and not version-like (`v\d+`). Stored lowercased.
+    Custom(String),
 }
 
 impl Environment {
@@ -105,96 +119,122 @@ impl Environment {
     pub fn production() -> Self {
         Environment::Production
     }
+
+    /// Construct a custom environment label (lowercased).
+    pub fn custom(label: impl Into<String>) -> Self {
+        Environment::Custom(label.into().to_ascii_lowercase())
+    }
+
+    /// The built-in environments (used for reserved-prefix-substring checks).
     pub fn variants() -> &'static [Environment] {
         &ENVIRONMENT_VARIANTS
     }
+
+    /// The string segment emitted into a key for this environment.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Environment::Development => "dev",
+            Environment::Test => "test",
+            Environment::Staging => "staging",
+            Environment::Production => "live",
+            Environment::Custom(label) => label,
+        }
+    }
 }
 
+impl std::fmt::Display for Environment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Separator character between API key components (prefix, version, env, data).
+///
+/// Note: the checksum/expiry delimiter is always `.` and is independent of this
+/// choice. `Underscore` is safe even though `_` is a base64url character,
+/// because verification never re-splits the key body on the separator — the
+/// token parser only splits on `.` and treats `prefix<sep>[v<n><sep>]env<sep>data`
+/// as one opaque blob. `_` is the dominant industry convention (Stripe, GitHub)
+/// and double-click-selects the whole token cleanly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, Default)]
+pub enum Separator {
+    #[strum(serialize = "/")]
+    Slash,
+    #[strum(serialize = "-")]
+    #[default]
+    Dash,
+    #[strum(serialize = "~")]
+    Tilde,
+    #[strum(serialize = "_")]
+    Underscore,
+}
+
+/// Checksum algorithm used for fast integrity / DoS-protection checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, IntoStaticStr)]
+pub enum ChecksumAlgo {
+    #[default]
+    #[strum(serialize = "b3")]
+    Blake3,
+}
+
+/// A prefix that has passed every validation rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyPrefix(String);
 
 impl KeyPrefix {
-    pub fn new(prefix: impl Into<String>) -> std::result::Result<Self, ConfigError> {
-        let prefix = prefix.into();
-        if prefix.is_empty() || prefix.len() > 20 {
-            return Err(ConfigError::InvalidPrefixLength);
-        }
-        if !prefix
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        {
-            return Err(ConfigError::InvalidPrefixCharacters);
-        }
-        if let Some(invalid) = Environment::variants().iter().find(|v| {
-            let s: &'static str = (*v).into();
-            prefix.contains(s)
-        }) {
-            return Err(ConfigError::InvalidPrefixSubstring(invalid.to_string()));
-        }
-
-        // Prevent prefixes that contain version patterns (e.g., "v1", "v2", "apiv42", "myv1key")
-        // This would conflict with the version component in the key format
-        if VERSION_PATTERN.is_match(&prefix) {
-            return Err(ConfigError::InvalidPrefixVersionLike);
-        }
-
-        Ok(Self(prefix))
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-/// Separator character for API key components (prefix, environment and data).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, Default)]
-pub enum Separator {
-    #[strum(serialize = "/")]
-    Slash,
+/// A checksum length expressed in **bits** (the unit developers reason about).
+///
+/// Internally the BLAKE3 checksum is emitted as hex, where 1 hex char = 4 bits,
+/// so the bit count must be a multiple of 4. Use [`ChecksumBits::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChecksumBits(usize);
 
-    #[strum(serialize = "-")]
-    #[default]
-    Dash,
-
-    #[strum(serialize = "~")]
-    Tilde,
-}
-
-#[derive(Debug, Clone, Getters)]
-pub struct HashConfig {
-    memory_cost: u32,
-    time_cost: u32,
-    parallelism: u32,
-}
-
-impl HashConfig {
-    /// Creates a custom HashConfig with validated parameters.
-    pub fn custom(
-        memory_cost: u32,
-        time_cost: u32,
-        parallelism: u32,
-    ) -> std::result::Result<Self, ConfigError> {
-        // Verify parameters are accepted by Argon2 library
-        // Bad idea to do it here.. but we'll keep it here for now
-        argon2::Params::new(memory_cost, time_cost, parallelism, None)
-            .map_err(|_| ConfigError::InvalidHashParams)?;
-
-        Ok(Self {
-            memory_cost,
-            time_cost,
-            parallelism,
-        })
+impl ChecksumBits {
+    /// Create a checksum length in bits (must be a multiple of 4). Validation of
+    /// the allowed range happens in [`ConfigBuilder::build`].
+    pub const fn new(bits: usize) -> Self {
+        ChecksumBits(bits)
     }
 
-    /// Balanced preset for general production use.
-    ///
-    /// - Memory: 46 MB
-    /// - Time: 1 iterations
-    /// - Parallelism: 1 threads
-    ///   Default recommendation according to
-    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
-    ///   Refer the document for best practices at different memory cost.
-    pub fn balanced() -> Self {
+    /// The length in bits.
+    pub const fn bits(&self) -> usize {
+        self.0
+    }
+
+    /// The corresponding number of hex characters (`bits / 4`).
+    pub const fn hex_len(&self) -> usize {
+        self.0 / 4
+    }
+}
+
+/// A validated checksum specification (algorithm + output length in hex chars).
+///
+/// `length` is stored in hex characters (the unit the generator/verifier use);
+/// the public API accepts [`ChecksumBits`] and converts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChecksumSpec {
+    pub algo: ChecksumAlgo,
+    pub length: usize,
+}
+
+/// Argon2id cost parameters (memory in KiB, iteration count, and lanes).
+///
+/// Only relevant when the chosen [`HashAlgo`] is [`HashAlgo::Argon2id`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Argon2Params {
+    pub memory_cost: u32,
+    pub time_cost: u32,
+    pub parallelism: u32,
+}
+
+impl Argon2Params {
+    /// Balanced preset (OWASP-recommended default): 46 MB, t=1, p=1.
+    pub const fn balanced() -> Self {
         Self {
             memory_cost: 47_104,
             time_cost: 1,
@@ -202,14 +242,8 @@ impl HashConfig {
         }
     }
 
-    /// High security preset for sensitive operations.
-    ///
-    /// - Memory: 64 MB
-    /// - Time: 2 iterations
-    /// - Parallelism: 4 threads
-    ///   Higher limits then what's suggested in
-    ///   [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id)
-    pub fn high_security() -> Self {
+    /// High-security preset: 64 MB, t=3, p=4.
+    pub const fn high_security() -> Self {
         Self {
             memory_cost: 65_536,
             time_cost: 3,
@@ -218,103 +252,448 @@ impl HashConfig {
     }
 }
 
-impl Default for HashConfig {
-    fn default() -> Self {
-        Self::balanced()
+/// Storage-hash strategy applied to a key before it is persisted.
+///
+/// API keys generated by this crate are high-entropy (>=128-bit) random values.
+/// Per NIST SP 800-63B, such "look-up secrets" only require an *approved fast
+/// hash* for storage — the slow, memory-hard password hashers (Argon2/bcrypt)
+/// are mandated only for low-entropy secrets like passwords. Accordingly:
+///
+/// - [`HashAlgo::Sha256`] — fast, unkeyed. Fine for high-entropy keys.
+/// - [`HashAlgo::HmacSha256`] — fast, **keyed** with a server-side pepper.
+///   Recommended: a leaked key database alone cannot be used to verify keys.
+/// - [`HashAlgo::Argon2id`] — slow, memory-hard. Opt-in for belt-and-suspenders
+///   or when hashing lower-entropy inputs.
+///
+/// The pepper in [`HashAlgo::HmacSha256`] MUST be stored separately from the key
+/// database (environment variable, secrets manager, or HSM), never alongside the
+/// hashes.
+///
+/// `Debug` is safe to derive: the pepper is a [`SecureString`], whose own
+/// `Debug` impl redacts its contents.
+#[derive(Clone, Debug)]
+pub enum HashAlgo {
+    /// Fast SHA-256 digest of the key. Suitable for high-entropy keys.
+    Sha256,
+    /// Keyed HMAC-SHA256 with a server-side pepper (recommended).
+    HmacSha256 { pepper: SecureString },
+    /// Slow, memory-hard Argon2id. Opt-in.
+    Argon2id(Argon2Params),
+}
+
+/// A fully validated, immutable configuration.
+///
+/// The generate and verify layers consume this by shared reference. It is cheap
+/// to clone. Note: if the configured [`HashAlgo`] is [`HashAlgo::HmacSha256`], it
+/// holds a secret pepper (kept in a [`SecureString`]); avoid logging it.
+#[derive(Debug, Clone)]
+pub struct ValidatedConfig {
+    prefix: KeyPrefix,
+    version: KeyVersion,
+    separator: Separator,
+    include_environment: bool,
+    entropy_bytes: usize,
+    checksum: Option<ChecksumSpec>,
+    hash: HashAlgo,
+    grace_period: Duration,
+}
+
+impl ValidatedConfig {
+    pub fn prefix(&self) -> &KeyPrefix {
+        &self.prefix
+    }
+    pub fn version(&self) -> KeyVersion {
+        self.version
+    }
+    pub fn separator(&self) -> Separator {
+        self.separator
+    }
+    /// Whether the environment segment is emitted into generated keys.
+    pub fn include_environment(&self) -> bool {
+        self.include_environment
+    }
+    pub fn entropy_bytes(&self) -> usize {
+        self.entropy_bytes
+    }
+    pub fn checksum(&self) -> Option<ChecksumSpec> {
+        self.checksum
+    }
+    pub fn hash(&self) -> &HashAlgo {
+        &self.hash
+    }
+    pub fn grace_period(&self) -> Duration {
+        self.grace_period
     }
 }
 
-#[derive(Default, Debug, Clone, IntoStaticStr)]
-pub enum ChecksumAlgo {
-    /// Cryptographic yet fast
-    /// hashing algo, suitable for
-    /// quick checksum verification.
-    #[default]
-    #[strum(serialize = "b3")]
-    Black3,
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/// Trace context attached to each accumulated error: the config field name.
+pub type Field = &'static str;
+
+/// A validation producing `A`, accumulating [`ConfigError`]s tagged by [`Field`].
+type Vc<A> = Valid<A, ConfigError, Field>;
+
+/// A single configuration problem.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConfigError {
+    #[error("prefix is required")]
+    MissingPrefix,
+
+    #[error("prefix must be between 1 and 20 characters")]
+    InvalidPrefixLength,
+
+    #[error("prefix must contain only alphanumeric characters, '_' or '-'")]
+    InvalidPrefixCharacters,
+
+    #[error("prefix must not contain the reserved environment substring '{0}'")]
+    InvalidPrefixSubstring(&'static str),
+
+    #[error("prefix cannot look like a version number (e.g. 'v1', 'v2', 'v42')")]
+    InvalidPrefixVersionLike,
+
+    #[error("entropy must be at least 16 bytes (128 bits)")]
+    EntropyTooLow,
+
+    #[error("entropy cannot exceed 64 bytes (512 bits)")]
+    EntropyTooHigh,
+
+    #[error("BLAKE3 checksum length must be at least 128 bits")]
+    ChecksumLenTooSmall,
+
+    #[error("BLAKE3 checksum length must be at most 256 bits")]
+    ChecksumLenTooLarge,
+
+    #[error("checksum length (bits) must be a multiple of 4")]
+    ChecksumBitsNotMultipleOf4,
+
+    #[error("invalid Argon2 parameters")]
+    InvalidHashParams,
+
+    #[error("HMAC pepper must not be empty")]
+    EmptyPepper,
 }
 
-#[derive(Debug, Clone, Getters)]
-pub struct KeyConfig {
-    entropy_bytes: usize,
-    checksum_length: usize,
-    separator: Separator,
-    checksum_algorithm: ChecksumAlgo,
+/// Aggregated, user-facing error returned by [`ConfigBuilder::build`].
+///
+/// Wraps the flat list of every [`ConfigError`] detected, so callers can fix
+/// them all in one pass rather than fix-one-recompile-repeat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigErrors(Vec<ConfigError>);
+
+impl ConfigErrors {
+    fn from_causes(causes: Vec<Cause<ConfigError, Field>>) -> Self {
+        ConfigErrors(causes.into_iter().map(|c| c.error).collect())
+    }
+
+    /// The individual problems, in the order they were detected.
+    pub fn errors(&self) -> &[ConfigError] {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ConfigErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "configuration invalid ({} error(s)):", self.0.len())?;
+        for e in &self.0 {
+            writeln!(f, "  - {e}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ConfigErrors {}
+
+// ---------------------------------------------------------------------------
+// Builder
+// ---------------------------------------------------------------------------
+
+/// Reserved environment substrings a prefix may not contain.
+const RESERVED_ENV_SUBSTRINGS: &[&str] = &["dev", "test", "staging", "live"];
+
+/// Collects raw, unvalidated configuration intent.
+///
+/// Every setter is infallible; all validation is deferred to
+/// [`ConfigBuilder::build`], which reports every problem at once.
+#[derive(Debug, Clone)]
+pub struct ConfigBuilder {
+    prefix: Option<String>,
     version: KeyVersion,
+    separator: Separator,
+    include_environment: bool,
+    entropy_bytes: usize,
+    checksum_enabled: bool,
+    checksum_algo: ChecksumAlgo,
+    checksum_bits: usize,
+    hash: HashAlgo,
+    grace_period: Duration,
 }
 
-impl KeyConfig {
+impl Default for ConfigBuilder {
+    fn default() -> Self {
+        Self {
+            prefix: None,
+            version: KeyVersion::NONE,
+            separator: Separator::Dash,
+            include_environment: true,
+            entropy_bytes: 24,
+            checksum_enabled: true,
+            checksum_algo: ChecksumAlgo::Blake3,
+            checksum_bits: 128, // 32 hex chars
+            // Default: keyed HMAC-SHA256. API keys are high-entropy (>=128-bit)
+            // random values, so a fast hash is sufficient (NIST SP 800-63B), and
+            // keying with a server-side pepper additionally makes a leaked key
+            // database useless without the separately-stored pepper.
+            //
+            // The pepper is REQUIRED: `build()` fails with `ConfigError::EmptyPepper`
+            // unless you supply one via `.pepper(...)`. To opt out of keying, set
+            // an explicit `.hash(HashAlgo::Sha256)`; for Argon2id use
+            // `.hash(HashAlgo::Argon2id(..))` or `ConfigBuilder::high_security()`.
+            hash: HashAlgo::HmacSha256 {
+                pepper: SecureString::from(String::new()),
+            },
+            grace_period: Duration::from_secs(10),
+        }
+    }
+}
+
+impl ConfigBuilder {
+    /// A builder pre-populated with balanced defaults. Set at least a prefix.
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn with_entropy(mut self, bytes: usize) -> std::result::Result<Self, ConfigError> {
-        if bytes < 16 {
-            return Err(ConfigError::EntropyTooLow);
+    /// A builder pre-populated with high-security defaults (64-byte entropy,
+    /// larger checksum, and slow Argon2id hashing with stronger params).
+    pub fn high_security() -> Self {
+        Self {
+            entropy_bytes: 64,
+            checksum_bits: 256, // 64 hex chars
+            hash: HashAlgo::Argon2id(Argon2Params::high_security()),
+            ..Self::default()
         }
-        if bytes > 64 {
-            return Err(ConfigError::EntropyTooHigh);
-        }
-        self.entropy_bytes = bytes;
-        Ok(self)
     }
 
-    pub fn checksum(mut self, bytes: usize) -> Result<Self, ConfigError> {
-        match &self.checksum_algorithm {
-            ChecksumAlgo::Black3 => {
-                if bytes < 32 {
-                    return Err(ConfigError::ChecksumLenTooSmall);
-                }
-                if bytes > 64 {
-                    return Err(ConfigError::ChecksumLenTooLarge);
-                }
-            }
-        }
-        self.checksum_length = bytes;
-        Ok(self)
-    }
-
-    pub fn disable_checksum(mut self) -> Self {
-        self.checksum_length = 0;
+    pub fn prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.prefix = Some(prefix.into());
         self
     }
 
-    pub fn with_separator(mut self, separator: Separator) -> Self {
-        self.separator = separator;
-        self
-    }
-
-    pub fn with_version(mut self, version: KeyVersion) -> Self {
+    pub fn version(mut self, version: KeyVersion) -> Self {
         self.version = version;
         self
     }
 
-    pub fn balanced() -> Self {
-        Self {
-            entropy_bytes: 24,
-            checksum_length: 20,
-            separator: Separator::default(),
-            checksum_algorithm: ChecksumAlgo::default(),
-            version: KeyVersion::default(),
-        }
+    pub fn separator(mut self, separator: Separator) -> Self {
+        self.separator = separator;
+        self
     }
 
-    pub fn high_security() -> Self {
-        Self {
-            entropy_bytes: 64,
-            checksum_length: 32,
-            separator: Separator::default(),
-            checksum_algorithm: ChecksumAlgo::default(),
-            version: KeyVersion::default(),
+    /// Omit the environment segment from generated keys.
+    ///
+    /// By default keys are `prefix<sep>[v<n><sep>]env<sep>data`. With this set,
+    /// the `env<sep>` segment is dropped: `prefix<sep>[v<n><sep>]data`. Useful
+    /// when the role/environment is folded into the prefix itself (e.g. Stripe's
+    /// `sk_live_…`). The `environment` argument to `generate` is then ignored.
+    pub fn no_environment(mut self) -> Self {
+        self.include_environment = false;
+        self
+    }
+
+    pub fn entropy(mut self, bytes: usize) -> Self {
+        self.entropy_bytes = bytes;
+        self
+    }
+
+    /// Enable a checksum of the given algorithm and length (in **bits**).
+    ///
+    /// For BLAKE3 the valid range is 128-256 bits, in multiples of 4.
+    pub fn checksum(mut self, algo: ChecksumAlgo, bits: ChecksumBits) -> Self {
+        self.checksum_enabled = true;
+        self.checksum_algo = algo;
+        self.checksum_bits = bits.bits();
+        self
+    }
+
+    pub fn no_checksum(mut self) -> Self {
+        self.checksum_enabled = false;
+        self
+    }
+
+    /// Select the storage-hash strategy. See [`HashAlgo`].
+    ///
+    /// Default is [`HashAlgo::HmacSha256`] (keyed), which requires a pepper —
+    /// set it with [`ConfigBuilder::pepper`]. Use [`HashAlgo::Sha256`] for an
+    /// unkeyed fast hash, or [`HashAlgo::Argon2id`] for memory-hard hashing.
+    pub fn hash(mut self, algo: HashAlgo) -> Self {
+        self.hash = algo;
+        self
+    }
+
+    /// Set the server-side pepper for the default keyed [`HashAlgo::HmacSha256`].
+    ///
+    /// The pepper MUST be stored separately from the key database (environment
+    /// variable, secrets manager, or HSM). This is a convenience for the common
+    /// case; it is equivalent to `.hash(HashAlgo::HmacSha256 { pepper })`.
+    pub fn pepper(mut self, pepper: impl Into<SecureString>) -> Self {
+        self.hash = HashAlgo::HmacSha256 {
+            pepper: pepper.into(),
+        };
+        self
+    }
+
+    pub fn grace_period(mut self, grace_period: Duration) -> Self {
+        self.grace_period = grace_period;
+        self
+    }
+
+    /// Validate every field and assemble a [`ValidatedConfig`].
+    ///
+    /// Does **not** stop at the first bad field: `fuse` runs every validator and
+    /// merges their causes, so the returned [`ConfigErrors`] lists all problems.
+    pub fn build(self) -> Result<ValidatedConfig, ConfigErrors> {
+        let version = self.version;
+        let separator = self.separator;
+        let include_environment = self.include_environment;
+        let grace_period = self.grace_period;
+
+        let prefix = validate_prefix(self.prefix);
+        let entropy = validate_entropy(self.entropy_bytes);
+        let checksum = validate_checksum(
+            self.checksum_enabled,
+            self.checksum_algo,
+            self.checksum_bits,
+        );
+        let hash = validate_hash(self.hash);
+
+        // `fuse` appends via the `Append` trait, flattening into a single tuple:
+        // (KeyPrefix, usize, Option<ChecksumSpec>, HashAlgo).
+        prefix
+            .fuse(entropy)
+            .fuse(checksum)
+            .fuse(hash)
+            .map(|(prefix, entropy_bytes, checksum, hash)| ValidatedConfig {
+                prefix,
+                version,
+                separator,
+                include_environment,
+                entropy_bytes,
+                checksum,
+                hash,
+                grace_period,
+            })
+            .to_result()
+            .map_err(ConfigErrors::from_causes)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Field validators
+// ---------------------------------------------------------------------------
+
+fn validate_prefix(raw: Option<String>) -> Vc<KeyPrefix> {
+    let prefix = match raw {
+        Some(p) => p,
+        None => return Valid::fail(ConfigError::MissingPrefix).trace("prefix"),
+    };
+
+    let length: Vc<()> = Valid::<(), _, _>::fail(ConfigError::InvalidPrefixLength)
+        .when(|| prefix.is_empty() || prefix.len() > 20);
+
+    let chars: Vc<()> = Valid::<(), _, _>::fail(ConfigError::InvalidPrefixCharacters).when(|| {
+        !prefix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    });
+
+    let substring: Vc<()> = match RESERVED_ENV_SUBSTRINGS
+        .iter()
+        .find(|s| prefix.contains(**s))
+    {
+        Some(reserved) => Valid::fail(ConfigError::InvalidPrefixSubstring(reserved)),
+        None => Valid::succeed(()),
+    };
+
+    let version_like: Vc<()> = Valid::<(), _, _>::fail(ConfigError::InvalidPrefixVersionLike)
+        .when(|| VERSION_PATTERN.is_match(&prefix));
+
+    length
+        .fuse(chars)
+        .fuse(substring)
+        .fuse(version_like)
+        .map_to(KeyPrefix(prefix))
+        .trace("prefix")
+}
+
+fn validate_entropy(bytes: usize) -> Vc<usize> {
+    if bytes < 16 {
+        Valid::fail(ConfigError::EntropyTooLow).trace("entropy")
+    } else if bytes > 64 {
+        Valid::fail(ConfigError::EntropyTooHigh).trace("entropy")
+    } else {
+        Valid::succeed(bytes)
+    }
+}
+
+fn validate_checksum(enabled: bool, algo: ChecksumAlgo, bits: usize) -> Vc<Option<ChecksumSpec>> {
+    if !enabled {
+        return Valid::succeed(None);
+    }
+
+    // Hex encoding emits one char per 4 bits, so the length must be a whole
+    // number of hex chars.
+    if !bits.is_multiple_of(4) {
+        return Valid::fail(ConfigError::ChecksumBitsNotMultipleOf4).trace("checksum");
+    }
+
+    match algo {
+        ChecksumAlgo::Blake3 => {
+            // 128-256 bits == 32-64 hex chars.
+            if bits < 128 {
+                Valid::fail(ConfigError::ChecksumLenTooSmall).trace("checksum")
+            } else if bits > 256 {
+                Valid::fail(ConfigError::ChecksumLenTooLarge).trace("checksum")
+            } else {
+                Valid::succeed(Some(ChecksumSpec {
+                    algo,
+                    length: bits / 4,
+                }))
+            }
         }
     }
 }
 
-impl Default for KeyConfig {
-    fn default() -> Self {
-        Self::balanced()
+fn validate_hash(hash: HashAlgo) -> Vc<HashAlgo> {
+    match &hash {
+        // A fast unkeyed hash has nothing to validate.
+        HashAlgo::Sha256 => Valid::succeed(hash),
+
+        // The HMAC pepper must be non-empty to provide any keying.
+        HashAlgo::HmacSha256 { pepper } => {
+            use crate::shared::secure::SecureStringExt;
+            if pepper.is_empty() {
+                Valid::fail(ConfigError::EmptyPepper).trace("hash")
+            } else {
+                Valid::succeed(hash)
+            }
+        }
+
+        // Probe the Argon2 library for parameter validity here, in the config
+        // layer, rather than deep inside the hasher.
+        HashAlgo::Argon2id(p) => {
+            match argon2::Params::new(p.memory_cost, p.time_cost, p.parallelism, None) {
+                Ok(_) => Valid::succeed(hash),
+                Err(_) => Valid::fail(ConfigError::InvalidHashParams).trace("hash"),
+            }
+        }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -322,78 +701,200 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn test_prefix_validation() {
-        assert!(KeyPrefix::new("sk").is_ok());
-        assert!(KeyPrefix::new("api_key").is_ok());
-        assert!(KeyPrefix::new("").is_err());
-        assert!(KeyPrefix::new("invalid-prefix").is_ok());
+    fn valid_default_config_builds() {
+        // The default hash is keyed HMAC-SHA256, which requires a pepper.
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
+        assert_eq!(cfg.prefix().as_str(), "sk");
+        assert_eq!(cfg.entropy_bytes(), 24);
+        // Default checksum is 128 bits == 32 hex chars.
+        assert_eq!(cfg.checksum().unwrap().length, 32);
+        assert_eq!(cfg.version(), KeyVersion::NONE);
+        assert!(matches!(cfg.hash(), HashAlgo::HmacSha256 { .. }));
     }
 
     #[test]
-    fn test_prefix_cannot_be_version_like() {
-        // Should reject any prefix containing version patterns (v followed by digits)
-        assert!(KeyPrefix::new("v1").is_err());
-        assert!(KeyPrefix::new("v2").is_err());
-        assert!(KeyPrefix::new("v42").is_err());
-        assert!(KeyPrefix::new("v100").is_err());
-        assert!(KeyPrefix::new("v0").is_err());
-        assert!(KeyPrefix::new("apiv1").is_err());
-        assert!(KeyPrefix::new("apiv2").is_err());
-        assert!(KeyPrefix::new("myv42key").is_err());
-        assert!(KeyPrefix::new("testv1").is_err());
-        assert!(KeyPrefix::new("v1beta").is_err());
-        assert!(KeyPrefix::new("betav1").is_err());
-        assert!(KeyPrefix::new("keyv123end").is_err());
+    fn default_hash_requires_a_pepper() {
+        // Without a pepper the default HMAC config is rejected up front.
+        let err = ConfigBuilder::new().prefix("sk").build().unwrap_err();
+        assert!(err.errors().contains(&ConfigError::EmptyPepper));
 
-        // Should allow prefixes without version patterns
-        assert!(KeyPrefix::new("version").is_ok());
-        assert!(KeyPrefix::new("vault").is_ok());
-        assert!(KeyPrefix::new("v_key").is_ok());
-        assert!(KeyPrefix::new("vkey").is_ok());
-        assert!(KeyPrefix::new("api").is_ok());
-        assert!(KeyPrefix::new("sk").is_ok());
-        assert!(KeyPrefix::new("versionkey").is_ok());
-        assert!(KeyPrefix::new("apiversion").is_ok());
-        // Edge case: just 'v' should be allowed
-        assert!(KeyPrefix::new("v").is_ok());
+        // Opting into an unkeyed algorithm removes the requirement.
+        assert!(ConfigBuilder::new()
+            .prefix("sk")
+            .hash(HashAlgo::Sha256)
+            .build()
+            .is_ok());
     }
 
     #[test]
-    fn test_config_validation() {
-        assert!(KeyConfig::new().with_entropy(32).is_ok());
-        assert!(KeyConfig::new().with_entropy(8).is_err());
-        assert!(KeyConfig::new().with_entropy(128).is_err());
+    fn checksum_bits_convert_and_validate() {
+        // bits -> hex chars conversion.
+        assert_eq!(ChecksumBits::new(128).hex_len(), 32);
+        assert_eq!(ChecksumBits::new(256).hex_len(), 64);
+
+        // A custom in-range value round-trips to hex chars in the spec.
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(160))
+            .build()
+            .unwrap();
+        assert_eq!(cfg.checksum().unwrap().length, 40); // 160 / 4
+
+        // Out-of-range and non-multiple-of-4 are rejected with clear errors.
+        let too_small = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(64))
+            .build()
+            .unwrap_err();
+        assert!(too_small
+            .errors()
+            .contains(&ConfigError::ChecksumLenTooSmall));
+
+        let too_large = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(512))
+            .build()
+            .unwrap_err();
+        assert!(too_large
+            .errors()
+            .contains(&ConfigError::ChecksumLenTooLarge));
+
+        let not_mult4 = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(130))
+            .build()
+            .unwrap_err();
+        assert!(not_mult4
+            .errors()
+            .contains(&ConfigError::ChecksumBitsNotMultipleOf4));
     }
 
     #[test]
-    fn test_separator_display() {
-        let slash: &'static str = Separator::Slash.into();
-        let dash: &'static str = Separator::Dash.into();
-        let tilde: &'static str = Separator::Tilde.into();
-        assert_eq!(slash, "/");
-        assert_eq!(dash, "-");
-        assert_eq!(tilde, "~");
+    fn missing_prefix_is_reported() {
+        // With no prefix and the default (pepper-less) HMAC config, both problems
+        // are accumulated; assert the prefix error is present.
+        let err = ConfigBuilder::new().build().unwrap_err();
+        assert!(err.errors().contains(&ConfigError::MissingPrefix));
     }
 
     #[test]
-    fn test_separator_from_str() {
+    fn no_checksum_yields_none() {
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .no_checksum()
+            .build()
+            .unwrap();
+        assert!(cfg.checksum().is_none());
+    }
+
+    #[test]
+    fn all_errors_accumulate_across_fields() {
+        let err = ConfigBuilder::new()
+            .prefix("bad prefix")
+            .entropy(4)
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(8))
+            .hash(HashAlgo::Argon2id(Argon2Params {
+                memory_cost: 0,
+                time_cost: 0,
+                parallelism: 0,
+            }))
+            .build()
+            .unwrap_err();
+
+        let errors = err.errors();
+        assert!(errors.contains(&ConfigError::InvalidPrefixCharacters));
+        assert!(errors.contains(&ConfigError::EntropyTooLow));
+        assert!(errors.contains(&ConfigError::ChecksumLenTooSmall));
+        assert!(errors.contains(&ConfigError::InvalidHashParams));
+        assert!(errors.len() >= 4, "expected >= 4 errors, got {errors:?}");
+    }
+
+    #[test]
+    fn hash_algos_build_and_validate() {
+        // Sha256: always valid, no secret needed.
+        assert!(ConfigBuilder::new()
+            .prefix("sk")
+            .hash(HashAlgo::Sha256)
+            .build()
+            .is_ok());
+
+        // HmacSha256 with a non-empty pepper: valid.
+        assert!(ConfigBuilder::new()
+            .prefix("sk")
+            .hash(HashAlgo::HmacSha256 {
+                pepper: SecureString::from("pepper".to_string()),
+            })
+            .build()
+            .is_ok());
+
+        // HmacSha256 with an empty pepper: EmptyPepper error.
+        let err = ConfigBuilder::new()
+            .prefix("sk")
+            .hash(HashAlgo::HmacSha256 {
+                pepper: SecureString::from(String::new()),
+            })
+            .build()
+            .unwrap_err();
+        assert!(err.errors().contains(&ConfigError::EmptyPepper));
+    }
+
+    #[test]
+    fn hash_algo_debug_redacts_pepper() {
+        let algo = HashAlgo::HmacSha256 {
+            pepper: SecureString::from("super-secret-pepper".to_string()),
+        };
+        // SecureString's own Debug redacts the contents, so the derived Debug
+        // must never expose the pepper.
+        let dbg = format!("{algo:?}");
+        assert!(!dbg.contains("super-secret-pepper"));
+    }
+
+    #[test]
+    fn multiple_prefix_rules_accumulate() {
+        let err = ConfigBuilder::new()
+            .prefix("this-prefix-is-way-too-long-live")
+            .build()
+            .unwrap_err();
+
+        let errors = err.errors();
+        assert!(errors.contains(&ConfigError::InvalidPrefixLength));
+        assert!(errors.contains(&ConfigError::InvalidPrefixSubstring("live")));
+    }
+
+    #[test]
+    fn version_like_prefix_rejected() {
+        let err = ConfigBuilder::new().prefix("apiv1").build().unwrap_err();
+        assert!(err
+            .errors()
+            .contains(&ConfigError::InvalidPrefixVersionLike));
+    }
+
+    #[test]
+    fn display_lists_every_error() {
+        let err = ConfigBuilder::new()
+            .prefix("live")
+            .entropy(4)
+            .build()
+            .unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("error(s)"));
+        assert!(text.matches("  - ").count() >= 2, "rendered: {text}");
+    }
+
+    #[test]
+    fn separator_roundtrip() {
         assert_eq!(Separator::from_str("/").unwrap(), Separator::Slash);
-        assert_eq!(Separator::from_str("-").unwrap(), Separator::Dash);
-        assert_eq!(Separator::from_str("~").unwrap(), Separator::Tilde);
-        assert!(Separator::from_str(".").is_err());
-    }
-
-    #[test]
-    fn test_separator_default() {
+        assert_eq!(Separator::from_str("_").unwrap(), Separator::Underscore);
         assert_eq!(Separator::default(), Separator::Dash);
-    }
-
-    #[test]
-    fn test_key_config_with_separator() {
-        let config = KeyConfig::new().with_separator(Separator::Dash);
-        assert_eq!(config.separator, Separator::Dash);
-
-        let config = KeyConfig::new().with_separator(Separator::Tilde);
-        assert_eq!(config.separator, Separator::Tilde);
+        let dash: &'static str = Separator::Dash.into();
+        assert_eq!(dash, "-");
+        let underscore: &'static str = Separator::Underscore.into();
+        assert_eq!(underscore, "_");
     }
 }
