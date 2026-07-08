@@ -153,11 +153,23 @@ impl Generator {
         expiry: Option<DateTime<Utc>>,
     ) -> Result<SecureString> {
         let bytes = self.random_entropy()?;
+        let key = self.assemble(&bytes, environment, expiry)?;
+        Ok(SecureString::from(key))
+    }
 
+    /// Assemble the token from a caller-supplied entropy block. Shared by
+    /// [`Generator::raw_key`] (real CSPRNG entropy) and
+    /// [`Generator::example_key`] (fixed dummy entropy). Performs no hashing.
+    fn assemble(
+        &self,
+        bytes: &[u8],
+        environment: Environment,
+        expiry: Option<DateTime<Utc>>,
+    ) -> Result<String> {
         // Encode entropy directly into a zeroizing buffer (no intermediate String).
         let encoded_len = (4 * bytes.len()).div_ceil(3);
         let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
-        URL_SAFE_NO_PAD.encode_slice(&bytes, &mut encoded)?;
+        URL_SAFE_NO_PAD.encode_slice(bytes, &mut encoded)?;
 
         let sep: &'static str = self.config.separator().into();
         let version_component = self.config.version().component();
@@ -223,8 +235,21 @@ impl Generator {
             key.append(&mut checksum.into_bytes());
         }
 
-        let key = String::from_utf8(key)?;
-        Ok(SecureString::from(key))
+        Ok(String::from_utf8(key)?)
+    }
+
+    /// Produce a **non-secret**, correctly-shaped sample token for previews and
+    /// documentation. Uses a fixed dummy entropy block (all zero bytes, which
+    /// base64-encode to `A`s), so the output is stable and obviously fake. Never
+    /// calls the CSPRNG and never hashes — the result is NOT a valid, verifiable
+    /// key. For display only.
+    pub fn example_key(&self, environment: Environment) -> String {
+        let bytes = vec![0u8; self.config.entropy_bytes()];
+        // `assemble` can only fail on encoding/UTF-8/env-label issues; the fixed
+        // zero entropy and built-in environments cannot trigger those, so a
+        // failure here indicates a caller-supplied invalid custom label.
+        self.assemble(&bytes, environment, None)
+            .unwrap_or_else(|_| "<invalid environment label>".to_string())
     }
 
     /// Mint and hash a new key.
@@ -325,6 +350,45 @@ mod tests {
             .raw_key(Environment::Production, None)
             .unwrap();
         assert!(key.expose_secret().contains('/'));
+    }
+
+    #[test]
+    fn example_key_is_stable_shaped_and_non_secret() {
+        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let g = generator(cfg);
+
+        let a = g.example_key(Environment::Production);
+        let b = g.example_key(Environment::Production);
+
+        // Stable and obviously fake (all-'A' data block from zero entropy).
+        assert_eq!(a, b);
+        assert!(a.starts_with("sk-live-"));
+        assert!(a.contains("AAAA"), "expected dummy data block: {a}");
+        // Correctly shaped: default has a checksum, so exactly one '.'.
+        assert_eq!(a.matches('.').count(), 1);
+    }
+
+    #[test]
+    fn example_key_matches_real_key_shape() {
+        // The preview must share the real key's structural shape (prefix, env,
+        // separators, checksum presence), just with fake entropy.
+        let cfg = ConfigBuilder::new()
+            .prefix("pk")
+            .separator(Separator::Underscore)
+            .build()
+            .unwrap();
+        let g = generator(cfg);
+        let example = g.example_key(Environment::Test);
+        let real = g
+            .raw_key(Environment::Test, None)
+            .unwrap()
+            .expose_secret()
+            .to_string();
+
+        // Same prefix+env+separator layout and same dot-count (checksum).
+        assert!(example.starts_with("pk_test_"));
+        assert!(real.starts_with("pk_test_"));
+        assert_eq!(example.matches('.').count(), real.matches('.').count());
     }
 
     #[test]
