@@ -118,7 +118,8 @@ mod tests {
         let m = manager();
         let key = m.generate(Environment::production()).unwrap();
         assert!(key.key().expose_secret().starts_with("sk-live-"));
-        assert!(key.expose_hash().hash().starts_with("$argon2id$"));
+        // Default hash algorithm is now SHA-256 (self-describing tag).
+        assert!(key.expose_hash().hash().starts_with("sha256$"));
         assert_eq!(
             m.verify(key.key(), key.expose_hash().hash()).unwrap(),
             KeyStatus::Valid

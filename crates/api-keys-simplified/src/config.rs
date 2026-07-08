@@ -370,9 +370,13 @@ impl Default for ConfigBuilder {
             checksum_enabled: true,
             checksum_algo: ChecksumAlgo::Blake3,
             checksum_length: 32,
-            // NOTE: the default hash algorithm is flipped to Sha256 in a later
-            // step (A5); Argon2id is kept here for now to preserve behavior.
-            hash: HashAlgo::Argon2id(Argon2Params::balanced()),
+            // Default: fast SHA-256. API keys are high-entropy (>=128-bit)
+            // random values, for which NIST SP 800-63B permits an approved fast
+            // hash; the slow memory-hard hashers are only required for
+            // low-entropy secrets like passwords. Use `.hash(HashAlgo::HmacSha256
+            // { pepper })` for the recommended keyed variant, or
+            // `ConfigBuilder::high_security()` for Argon2id.
+            hash: HashAlgo::Sha256,
             grace_period: Duration::from_secs(10),
         }
     }
@@ -429,8 +433,8 @@ impl ConfigBuilder {
 
     /// Select the storage-hash strategy. See [`HashAlgo`].
     ///
-    /// Default is [`HashAlgo::Argon2id`] with balanced parameters (this default
-    /// is flipped to [`HashAlgo::Sha256`] in a later step).
+    /// Default is [`HashAlgo::Sha256`]. For DB-leak resistance, prefer
+    /// [`HashAlgo::HmacSha256`] with a server-side pepper.
     pub fn hash(mut self, algo: HashAlgo) -> Self {
         self.hash = algo;
         self

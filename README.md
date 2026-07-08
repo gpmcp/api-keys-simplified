@@ -10,7 +10,9 @@ A secure Rust library for generating and validating API keys with built-in secur
 ## Features
 
 - **Cryptographically secure** key generation (192-bit entropy)
-- **Argon2id hashing** (memory-hard, OWASP recommended)
+- **Pluggable hashing** — SHA-256 (fast default), HMAC-SHA256 (keyed, recommended),
+  or Argon2id (opt-in). Fast hashes are appropriate for high-entropy keys per
+  NIST SP 800-63B
 - **BLAKE3 checksums** (2900x faster DoS protection)
 - **Constant-time verification** (prevents timing attacks)
 - **Automatic memory zeroing** (protects sensitive data)
@@ -30,7 +32,7 @@ let api_key = manager.generate(Environment::production())?;
 // Show to user once (they must save it)
 println!("API Key: {}", api_key.key().expose_secret());
 
-// Store hash in database (PHC format includes salt)
+// Store the self-describing hash string in your database
 let hash_data = api_key.expose_hash();
 database.save(hash_data.hash());
 

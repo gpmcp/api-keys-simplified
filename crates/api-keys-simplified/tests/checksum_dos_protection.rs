@@ -1,5 +1,7 @@
 use api_keys_simplified::ExposeSecret;
-use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, SecureString};
+use api_keys_simplified::{
+    ApiKeyManager, Argon2Params, ConfigBuilder, Environment, HashAlgo, KeyStatus, SecureString,
+};
 use std::time::Instant;
 
 #[test]
@@ -41,11 +43,13 @@ fn test_checksum_prevents_expensive_verification() {
 
 #[test]
 fn test_valid_checksum_proceeds_to_argon2() {
-    // Verify that valid checksums still go through Argon2 verification
+    // Verify that valid checksums still go through Argon2 verification.
+    // This test pins Argon2id because it asserts the *slow* hash timing.
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("verify")
             .no_checksum()
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),
@@ -78,10 +82,12 @@ fn test_valid_checksum_proceeds_to_argon2() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_dos_protection_comparison() {
-    // Compare DoS resistance: with vs without checksum
+    // Compare DoS resistance: with vs without checksum. Both pin Argon2id so the
+    // "without checksum" path pays the full slow-hash cost the checksum avoids.
     let with_checksum = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("dos1")
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),
@@ -92,6 +98,7 @@ fn test_dos_protection_comparison() {
         ConfigBuilder::new()
             .prefix("dos2")
             .no_checksum()
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),

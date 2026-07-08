@@ -10,7 +10,8 @@ A secure, Rust library for generating and validating API keys with built-in secu
 ## What It Does
 
 - **Generate** cryptographically secure API keys (192-bit entropy default)
-- **Hash** keys using Argon2id (memory-hard, OWASP recommended)
+- **Hash** keys with a pluggable algorithm — fast **SHA-256** (default), keyed
+  **HMAC-SHA256** (recommended), or memory-hard **Argon2id** (opt-in)
 - **Checksum** keys with BLAKE3 for fast DoS protection (2900x speedup)
 - **Verify** keys with constant-time comparison (prevents timing attacks)
 - **Protect** sensitive data with automatic memory zeroing
@@ -114,9 +115,40 @@ Common API key security mistakes:
 ### 🔒 Cryptographic Strength
 
 - **RNG:** OS-level CSPRNG via `getrandom` crate
-- **Hashing:** Argon2id (Password Hashing Competition winner)
+- **Hashing:** pluggable via `HashAlgo` — SHA-256 (default), HMAC-SHA256
+  (recommended, keyed with a server pepper), or Argon2id (opt-in)
 - **Entropy:** 192 bits default (NIST compliant through 2030+)
-- **Memory-Hard:** Prevents GPU/ASIC brute force attacks
+- **Standards:** per NIST SP 800-63B, high-entropy (≥128-bit) look-up secrets
+  only need an approved *fast* hash; the slow memory-hard hashers are for
+  low-entropy passwords, so a fast hash is the sensible default here
+
+#### Choosing a hash algorithm
+
+```rust
+use api_keys_simplified::{ConfigBuilder, HashAlgo, Argon2Params, SecureString};
+
+// Default: fast SHA-256 (good for high-entropy random keys)
+let cfg = ConfigBuilder::new().prefix("sk").build()?;
+
+// Recommended for production: keyed HMAC-SHA256. A leaked key database alone
+// cannot be used to verify keys — store the pepper separately (env/secrets/HSM).
+let pepper = SecureString::from(std::env::var("API_KEY_PEPPER")?);
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .hash(HashAlgo::HmacSha256 { pepper })
+    .build()?;
+
+// Opt-in: memory-hard Argon2id (or use ConfigBuilder::high_security()).
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+    .build()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The stored hash is self-describing (`sha256$…`, `hmac-sha256$…`, `$argon2id$…`),
+so verification dispatches on the stored value — a database may hold hashes from
+multiple algorithms during a migration.
 
 ### 🛡️ Side-Channel Protection
 

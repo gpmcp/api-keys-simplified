@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus};
+use api_keys_simplified::{
+    ApiKeyManager, Argon2Params, ConfigBuilder, Environment, HashAlgo, KeyStatus,
+};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::collections::HashSet;
 
@@ -113,8 +115,15 @@ fn test_key_format_consistency() {
 
 #[test]
 fn test_argon2_phc_format() {
-    let generator =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("phc").build().unwrap()).unwrap();
+    // Explicitly select Argon2id: this test asserts its PHC output format.
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("phc")
+            .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let hash = key.expose_hash().hash();
 
