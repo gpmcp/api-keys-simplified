@@ -182,4 +182,34 @@ mod tests {
             KeyStatus::Valid
         );
     }
+
+    #[test]
+    fn custom_environment_round_trips_through_verify() {
+        let m = manager();
+        let key = m.generate(Environment::custom("prod")).unwrap();
+        assert!(key.key().expose_secret().starts_with("sk-prod-"));
+        assert_eq!(
+            m.verify(key.key(), key.expose_hash().hash()).unwrap(),
+            KeyStatus::Valid
+        );
+    }
+
+    #[test]
+    fn no_environment_round_trips_through_verify() {
+        let m = ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("sk")
+                .no_environment()
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+        // The environment argument is ignored when the config disables it.
+        let key = m.generate(Environment::production()).unwrap();
+        assert!(!key.key().expose_secret().contains("-live-"));
+        assert_eq!(
+            m.verify(key.key(), key.expose_hash().hash()).unwrap(),
+            KeyStatus::Valid
+        );
+    }
 }

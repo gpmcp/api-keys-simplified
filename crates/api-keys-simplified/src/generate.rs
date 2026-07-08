@@ -35,6 +35,11 @@ pub enum GenerateError {
     #[error(transparent)]
     Utf8(#[from] std::string::FromUtf8Error),
 
+    #[error(
+        "invalid custom environment label: must be 1-20 chars of [a-z0-9] and not version-like"
+    )]
+    InvalidEnvironment,
+
     #[error(transparent)]
     Hashing(#[from] crate::shared::hasher::HashError),
 }
@@ -155,8 +160,17 @@ impl Generator {
         URL_SAFE_NO_PAD.encode_slice(&bytes, &mut encoded)?;
 
         let sep: &'static str = self.config.separator().into();
-        let env: &'static str = environment.into();
         let version_component = self.config.version().component();
+
+        // Environment segment: omitted entirely when the config disables it.
+        // A custom label is validated so it cannot inject separators/dots.
+        let env: Option<&str> = if self.config.include_environment() {
+            let label = environment.as_str();
+            validate_env_label(label)?;
+            Some(label)
+        } else {
+            None
+        };
 
         let checksum_length = self
             .config
@@ -168,13 +182,13 @@ impl Generator {
         } else {
             sep.len() + version_component.len()
         };
+        let env_length = env.map(|e| sep.len() + e.len()).unwrap_or(0);
         let exp_string = expiry.map(|e| URL_SAFE_NO_PAD.encode(e.timestamp().to_be_bytes()));
         let expiry_length = exp_string.as_ref().map(|b| b.len() + 1).unwrap_or(0);
 
         let capacity = self.config.prefix().as_str().len()
             + version_length
-            + sep.len()
-            + env.len()
+            + env_length
             + sep.len()
             + encoded.len()
             + expiry_length
@@ -188,8 +202,10 @@ impl Generator {
             key.extend_from_slice(sep.as_bytes());
             key.extend_from_slice(version_component.as_bytes());
         }
-        key.extend_from_slice(sep.as_bytes());
-        key.extend_from_slice(env.as_bytes());
+        if let Some(env) = env {
+            key.extend_from_slice(sep.as_bytes());
+            key.extend_from_slice(env.as_bytes());
+        }
         key.extend_from_slice(sep.as_bytes());
         key.append(&mut encoded);
 
@@ -221,6 +237,37 @@ impl Generator {
         let key = self.raw_key(environment, expiry)?;
         ApiKey::new(key).into_hashed(hasher)
     }
+}
+
+/// Validates an environment label before it is embedded in a key.
+///
+/// Built-in environments always pass. A [`Environment::Custom`] label must be
+/// 1-20 chars of `[a-z0-9]` and not version-like (`v\d+`) so it cannot inject a
+/// separator, dot, or version component into the token format.
+fn validate_env_label(label: &str) -> Result<()> {
+    let ok = !label.is_empty()
+        && label.len() <= 20
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && !is_version_like(label);
+    if ok {
+        Ok(())
+    } else {
+        Err(GenerateError::InvalidEnvironment)
+    }
+}
+
+/// True if `s` contains a `v<digits>` run (matches the config-layer rule for
+/// version-like prefixes, kept local to avoid a cross-layer dependency).
+fn is_version_like(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'v' && bytes.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -278,6 +325,61 @@ mod tests {
             .raw_key(Environment::Production, None)
             .unwrap();
         assert!(key.expose_secret().contains('/'));
+    }
+
+    #[test]
+    fn custom_environment_label_is_emitted() {
+        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let key = generator(cfg)
+            .raw_key(Environment::custom("prod"), None)
+            .unwrap();
+        assert!(key.expose_secret().starts_with("sk-prod-"));
+    }
+
+    #[test]
+    fn invalid_custom_environment_is_rejected() {
+        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let g = generator(cfg);
+        // Contains a separator/dot/space or is version-like → rejected.
+        for bad in ["pr od", "pr.od", "pr-od", "v1", "PROD", ""] {
+            let env = Environment::Custom(bad.to_string());
+            assert!(
+                matches!(g.raw_key(env, None), Err(GenerateError::InvalidEnvironment)),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn no_environment_drops_the_env_segment() {
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .no_environment()
+            .build()
+            .unwrap();
+        // Even though we pass an environment, it must be omitted.
+        let key = generator(cfg)
+            .raw_key(Environment::Production, None)
+            .unwrap();
+        let s = key.expose_secret();
+        assert!(s.starts_with("sk-"));
+        assert!(!s.contains("-live-"), "env segment should be absent: {s}");
+    }
+
+    #[test]
+    fn no_environment_with_version() {
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .no_environment()
+            .build()
+            .unwrap();
+        let key = generator(cfg)
+            .raw_key(Environment::Production, None)
+            .unwrap();
+        // prefix-v1-data (no env), then .checksum
+        assert!(key.expose_secret().starts_with("sk-v1-"));
+        assert!(!key.expose_secret().contains("-live-"));
     }
 
     #[test]

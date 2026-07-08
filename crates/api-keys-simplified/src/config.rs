@@ -16,13 +16,18 @@ use std::time::Duration;
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
+use strum::{EnumString, IntoStaticStr};
 use tailcall_valid::{Cause, Valid, Validator};
 
 use crate::shared::secure::SecureString;
 
 lazy_static! {
-    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = Environment::iter().collect();
+    static ref ENVIRONMENT_VARIANTS: Vec<Environment> = vec![
+        Environment::Development,
+        Environment::Test,
+        Environment::Staging,
+        Environment::Production,
+    ];
     // Regex to detect version patterns: 'v' followed by one or more digits.
     static ref VERSION_PATTERN: Regex = Regex::new(r"v\d+").unwrap();
 }
@@ -84,17 +89,21 @@ impl std::fmt::Display for KeyVersion {
     }
 }
 
-/// Deployment environment for API keys.
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, Display, IntoStaticStr)]
+/// Deployment environment label embedded in a key.
+///
+/// The four built-ins serialize to `dev` / `test` / `staging` / `live`.
+/// [`Environment::Custom`] lets callers use their own label (e.g. `prod`,
+/// `sandbox`). The environment is opaque to verification, so a custom label
+/// round-trips without any verify-side change.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Environment {
-    #[strum(serialize = "dev")]
     Development,
-    #[strum(serialize = "test")]
     Test,
-    #[strum(serialize = "staging")]
     Staging,
-    #[strum(serialize = "live")]
     Production,
+    /// Caller-defined label. Must be validated at config/use time: non-empty,
+    /// ≤20 chars, `[a-z0-9]` only, and not version-like (`v\d+`). Stored lowercased.
+    Custom(String),
 }
 
 impl Environment {
@@ -110,8 +119,32 @@ impl Environment {
     pub fn production() -> Self {
         Environment::Production
     }
+
+    /// Construct a custom environment label (lowercased).
+    pub fn custom(label: impl Into<String>) -> Self {
+        Environment::Custom(label.into().to_ascii_lowercase())
+    }
+
+    /// The built-in environments (used for reserved-prefix-substring checks).
     pub fn variants() -> &'static [Environment] {
         &ENVIRONMENT_VARIANTS
+    }
+
+    /// The string segment emitted into a key for this environment.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Environment::Development => "dev",
+            Environment::Test => "test",
+            Environment::Staging => "staging",
+            Environment::Production => "live",
+            Environment::Custom(label) => label,
+        }
+    }
+}
+
+impl std::fmt::Display for Environment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -238,6 +271,7 @@ pub struct ValidatedConfig {
     prefix: KeyPrefix,
     version: KeyVersion,
     separator: Separator,
+    include_environment: bool,
     entropy_bytes: usize,
     checksum: Option<ChecksumSpec>,
     hash: HashAlgo,
@@ -253,6 +287,10 @@ impl ValidatedConfig {
     }
     pub fn separator(&self) -> Separator {
         self.separator
+    }
+    /// Whether the environment segment is emitted into generated keys.
+    pub fn include_environment(&self) -> bool {
+        self.include_environment
     }
     pub fn entropy_bytes(&self) -> usize {
         self.entropy_bytes
@@ -361,6 +399,7 @@ pub struct ConfigBuilder {
     prefix: Option<String>,
     version: KeyVersion,
     separator: Separator,
+    include_environment: bool,
     entropy_bytes: usize,
     checksum_enabled: bool,
     checksum_algo: ChecksumAlgo,
@@ -375,6 +414,7 @@ impl Default for ConfigBuilder {
             prefix: None,
             version: KeyVersion::NONE,
             separator: Separator::Dash,
+            include_environment: true,
             entropy_bytes: 24,
             checksum_enabled: true,
             checksum_algo: ChecksumAlgo::Blake3,
@@ -423,6 +463,17 @@ impl ConfigBuilder {
         self
     }
 
+    /// Omit the environment segment from generated keys.
+    ///
+    /// By default keys are `prefix<sep>[v<n><sep>]env<sep>data`. With this set,
+    /// the `env<sep>` segment is dropped: `prefix<sep>[v<n><sep>]data`. Useful
+    /// when the role/environment is folded into the prefix itself (e.g. Stripe's
+    /// `sk_live_…`). The `environment` argument to `generate` is then ignored.
+    pub fn no_environment(mut self) -> Self {
+        self.include_environment = false;
+        self
+    }
+
     pub fn entropy(mut self, bytes: usize) -> Self {
         self.entropy_bytes = bytes;
         self
@@ -461,6 +512,7 @@ impl ConfigBuilder {
     pub fn build(self) -> Result<ValidatedConfig, ConfigErrors> {
         let version = self.version;
         let separator = self.separator;
+        let include_environment = self.include_environment;
         let grace_period = self.grace_period;
 
         let prefix = validate_prefix(self.prefix);
@@ -473,7 +525,7 @@ impl ConfigBuilder {
         let hash = validate_hash(self.hash);
 
         // `fuse` appends via the `Append` trait, flattening into a single tuple:
-        // (KeyPrefix, usize, Option<ChecksumSpec>, Argon2Params).
+        // (KeyPrefix, usize, Option<ChecksumSpec>, HashAlgo).
         prefix
             .fuse(entropy)
             .fuse(checksum)
@@ -482,6 +534,7 @@ impl ConfigBuilder {
                 prefix,
                 version,
                 separator,
+                include_environment,
                 entropy_bytes,
                 checksum,
                 hash,
