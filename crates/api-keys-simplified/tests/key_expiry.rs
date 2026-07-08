@@ -1,12 +1,12 @@
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, SecureString,
+    ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus, SecureString,
 };
 use chrono::{Duration, Utc};
 
 /// Test that a key with future expiry is valid
 #[test]
 fn test_future_expiry_is_valid() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() + Duration::days(7);
 
     let key = manager
@@ -22,7 +22,7 @@ fn test_future_expiry_is_valid() {
 /// Test that a key with past expiry is expired
 #[test]
 fn test_past_expiry_is_expired() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -38,7 +38,7 @@ fn test_past_expiry_is_expired() {
 /// Test that expiry exactly at current time is still valid (<=)
 #[test]
 fn test_expiry_at_current_time() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now();
 
     let key = manager
@@ -56,7 +56,7 @@ fn test_expiry_at_current_time() {
 /// Test that keys without expiry never expire
 #[test]
 fn test_no_expiry_never_expires() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
 
     // Verify immediately
@@ -69,7 +69,7 @@ fn test_no_expiry_never_expires() {
 /// Test expired key with wrong hash still returns Invalid (not Expired)
 #[test]
 fn test_expired_key_wrong_hash() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let expired_key = manager
@@ -92,9 +92,14 @@ fn test_expired_key_wrong_hash() {
 #[test]
 fn test_short_expiry() {
     const EXPIRY: i64 = 3;
-    let config = KeyConfig::default();
-    let h_config = HashConfig::default();
-    let manager = ApiKeyManagerV0::init("sk", config, h_config, std::time::Duration::ZERO).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() + Duration::seconds(EXPIRY);
     let key = manager
         .generate_with_expiry(Environment::production(), expiry)
@@ -119,7 +124,7 @@ fn test_short_expiry() {
 /// Test very long expiry (years)
 #[test]
 fn test_long_expiry() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() + Duration::days(365 * 10); // 10 years
 
     let key = manager
@@ -135,7 +140,7 @@ fn test_long_expiry() {
 /// Test expiry with different environments
 #[test]
 fn test_expiry_across_environments() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let future = Utc::now() + Duration::days(1);
     let past = Utc::now() - Duration::days(1);
 
@@ -181,7 +186,7 @@ fn test_expiry_across_environments() {
 /// Test that expiry is embedded in key and survives hashing
 #[test]
 fn test_expiry_embedded_in_key() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -201,14 +206,13 @@ fn test_expiry_embedded_in_key() {
 /// Test expiry with checksum disabled
 #[test]
 fn test_expiry_without_checksum() {
-    use api_keys_simplified::{HashConfig, KeyConfig};
-
-    let config = KeyConfig::default().disable_checksum();
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .no_checksum()
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
@@ -240,7 +244,7 @@ fn test_expiry_without_checksum() {
 /// Test multiple keys with same expiry
 #[test]
 fn test_multiple_keys_same_expiry() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() + Duration::days(30);
 
     let key1 = manager
@@ -285,7 +289,7 @@ fn test_multiple_keys_same_expiry() {
 /// Test that expired keys with valid checksum still return Expired (not Invalid)
 #[test]
 fn test_expired_with_valid_checksum() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -302,7 +306,7 @@ fn test_expired_with_valid_checksum() {
 /// Test expiry timestamp encoding/decoding
 #[test]
 fn test_expiry_timestamp_round_trip() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
 
     // Test various timestamps
     let timestamps = vec![
@@ -330,7 +334,8 @@ fn test_expiry_timestamp_round_trip() {
 /// Test expiry with high security config
 #[test]
 fn test_expiry_with_high_security() {
-    let manager = ApiKeyManagerV0::init_high_security_config("sk").unwrap();
+    let manager =
+        ApiKeyManager::new(ConfigBuilder::high_security().prefix("sk").build().unwrap()).unwrap();
 
     let future = Utc::now() + Duration::days(7);
     let past = Utc::now() - Duration::days(1);
@@ -359,7 +364,7 @@ fn test_expiry_with_high_security() {
 /// Test that corrupted expiry data returns Invalid (not panic)
 #[test]
 fn test_corrupted_expiry_returns_invalid() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let expiry = Utc::now() + Duration::days(1);
 
     let key = manager
@@ -384,7 +389,8 @@ fn test_corrupted_expiry_returns_invalid() {
 /// Test real-world scenario: trial key lifecycle
 #[test]
 fn test_trial_key_lifecycle() {
-    let manager = ApiKeyManagerV0::init_default_config("trial").unwrap();
+    let manager =
+        ApiKeyManager::new(ConfigBuilder::new().prefix("trial").build().unwrap()).unwrap();
 
     // Create 7-day trial key
     let trial_expiry = Utc::now() + Duration::days(7);
@@ -418,8 +424,9 @@ fn test_trial_key_lifecycle() {
 /// Test that expiry works with different key prefixes
 #[test]
 fn test_expiry_with_custom_prefix() {
-    let manager1 = ApiKeyManagerV0::init_default_config("api").unwrap();
-    let manager2 = ApiKeyManagerV0::init_default_config("partner").unwrap();
+    let manager1 = ApiKeyManager::new(ConfigBuilder::new().prefix("api").build().unwrap()).unwrap();
+    let manager2 =
+        ApiKeyManager::new(ConfigBuilder::new().prefix("partner").build().unwrap()).unwrap();
 
     let expiry = Utc::now() - Duration::hours(1);
 

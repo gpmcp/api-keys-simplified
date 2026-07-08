@@ -22,11 +22,13 @@ A secure, Rust library for generating and validating API keys with built-in secu
 ### Basic Usage
 
 ```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus, SecureString};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus, SecureString};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Initialize with checksum (out of the box DoS protection)
-    let manager = ApiKeyManagerV0::init_default_config("gpmcp_sk")?;
+    // 1. Build a validated config, then initialize the manager
+    //    (checksum enabled by default for out-of-the-box DoS protection)
+    let config = ConfigBuilder::new().prefix("gpmcp_sk").build()?;
+    let manager = ApiKeyManager::new(config)?;
 
     // 2. Generate a new API key
     let api_key = manager.generate(Environment::production())?;
@@ -152,13 +154,14 @@ Common API key security mistakes:
 
 ```rust
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, 
+    ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, 
     KeyStatus, SecureString, ApiKey, Hash
 };
 use chrono::{Duration, Utc};
 
-// ✅ Checksums enabled by default (DoS protection - use .disable_checksum() to turn off)
-let manager = ApiKeyManagerV0::init_default_config("myapp_sk")?;
+// ✅ Checksums enabled by default (DoS protection - use .no_checksum() to turn off)
+let config = ConfigBuilder::new().prefix("myapp_sk").build()?;
+let manager = ApiKeyManager::new(config)?;
 
 // ✅ Never log keys (auto-redacted)
 let key = manager.generate(Environment::production())?;
@@ -177,7 +180,7 @@ let response = client.get("https://api.example.com")
     .send()?;
 
 // ✅ Implement key rotation
-fn rotate_key(manager: &ApiKeyManagerV0, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
+fn rotate_key(manager: &ApiKeyManager, user_id: u64) -> Result<ApiKey<Hash>, Box<dyn std::error::Error>> {
     let new_key = manager.generate(Environment::production())?;
     db.revoke_old_keys(user_id)?;
     
@@ -202,7 +205,7 @@ fn revoke_key(user_id: u64, key_hash: &str) -> Result<(), Box<dyn std::error::Er
 
 // ✅ Check revocation status during verification
 fn verify_with_revocation(
-    manager: &ApiKeyManagerV0, 
+    manager: &ApiKeyManager, 
     key: &SecureString, 
     user_id: u64
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -247,21 +250,42 @@ cargo test --features expensive_tests  # Include timing analysis
 
 ## Error Handling
 
-```rust
-use api_keys_simplified::{ApiKeyManagerV0, Environment, Error, ExposeSecret};
+The error type is split by operation: `ConfigBuilder::build()` returns `ConfigErrors`,
+`ApiKeyManager::new` returns `InitError`, `generate` returns `GenerateError`, and
+`verify` returns `VerifyError`.
 
-match ApiKeyManagerV0::init_default_config("sk") {
-    Ok(manager) => {
-        match manager.generate(Environment::production()) {
-            Ok(key) => println!("Success: {}", key.key().expose_secret()),
-            Err(Error::OperationFailed(op_err)) => {
-                // Operation errors contain details (use {:?} in logs for debugging)
-                eprintln!("Operation error: {}", op_err);
-            }
-            Err(e) => eprintln!("Generation error: {}", e),
+```rust
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret};
+
+// ConfigBuilder::build() accumulates and reports ALL configuration errors at once
+// (via ConfigErrors), rather than failing on the first problem.
+let config = match ConfigBuilder::new().prefix("sk").build() {
+    Ok(config) => config,
+    Err(config_errors) => {
+        // ConfigErrors::errors() returns a slice of every ConfigError that occurred
+        for err in config_errors.errors() {
+            eprintln!("Config error: {}", err);
         }
+        return;
     }
-    Err(e) => eprintln!("Init error: {}", e),
+};
+
+// ApiKeyManager::new returns InitError
+let manager = match ApiKeyManager::new(config) {
+    Ok(manager) => manager,
+    Err(init_err) => {
+        eprintln!("Init error: {}", init_err);
+        return;
+    }
+};
+
+// generate returns GenerateError
+match manager.generate(Environment::production()) {
+    Ok(key) => println!("Success: {}", key.key().expose_secret()),
+    Err(gen_err) => {
+        // Generation errors contain details (use {:?} in logs for debugging)
+        eprintln!("Generation error: {}", gen_err);
+    }
 }
 ```
 

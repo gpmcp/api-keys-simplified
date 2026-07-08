@@ -6,53 +6,58 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, KeyStatus};
+//! use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Generate a new key with checksum (enabled by default for DoS protection)
-//! let generator = ApiKeyManagerV0::init_default_config("sk")?;
-//! let key = generator.generate(Environment::production())?;
-//! println!("Key: {}", key.key().expose_secret()); // Show once to user
-//! let hash = key.expose_hash().hash(); // Store this in database
+//! // 1. Describe the key format. All validation happens here, up front, and
+//! //    every problem is reported together.
+//! let config = ConfigBuilder::new().prefix("sk").build()?;
 //!
-//! // Validate a key - checksum is verified first for DoS protection
-//! let status = generator.verify(key.key(), hash)?;
-//! assert_eq!(status, KeyStatus::Valid);
+//! // 2. Build a manager from the validated config.
+//! let manager = ApiKeyManager::new(config)?;
+//!
+//! // 3. Generate a key (checksum enabled by default for DoS protection).
+//! let key = manager.generate(Environment::production())?;
+//! println!("Key: {}", key.key().expose_secret()); // Show once to the user
+//! let hash = key.expose_hash().hash();            // Store this in your database
+//!
+//! // 4. Verify — checksum is checked first for fast rejection.
+//! assert_eq!(manager.verify(key.key(), hash)?, KeyStatus::Valid);
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ## Why Use Checksums?
+//! ## Architecture
 //!
-//! Keys with checksums provide **2900x faster rejection** of invalid keys:
-//! - Invalid keys rejected in ~20μs (checksum validation)
-//! - Valid keys verified in ~300ms (Argon2 hashing)
-//! - **Protects against DoS attacks** via malformed keys
+//! The crate is organized as a strict, one-directional dependency tree so the
+//! `generate` and `verify` paths never import each other:
 //!
-//! The checksum uses BLAKE3 (cryptographic hash) for integrity verification.
+//! ```text
+//! manager            (orchestrator)
+//!   ├── generate     ──┐
+//!   └── verify       ──┤ both depend only on ↓ (never on each other)
+//!         shared  ─────┘  (checksum, hasher, token_parser, secure)
+//!           config        (primitives + ConfigBuilder + ValidatedConfig)
+//! ```
+//!
+//! Shared logic (checksum, hashing) lives in `shared`; `generate` uses it to
+//! *append*, `verify` uses it to *check*.
 
 mod config;
-/// **Proof of concept** — accumulating configuration validation.
-///
-/// Demonstrates the redesigned config layer: a single `ConfigBuilder` that
-/// defers all validation to `build()` and reports every error at once via the
-/// `tailcall-valid` applicative validator. Not yet wired into `ApiKeyManagerV0`.
-pub mod config_v2;
-mod domain;
-mod error;
-mod generator;
-mod hasher;
-mod secure;
-mod token_parser;
-mod validator;
+mod generate;
+mod manager;
+mod shared;
+mod verify;
 
 pub use config::{
-    ChecksumAlgo, Environment, HashConfig, KeyConfig, KeyPrefix, KeyVersion, Separator,
+    ChecksumAlgo, ChecksumSpec, ConfigBuilder, ConfigError, ConfigErrors, Environment, HashSpec,
+    KeyPrefix, KeyVersion, Separator, ValidatedConfig,
 };
-pub use domain::{ApiKey, ApiKeyManagerV0, Hash, NoHash};
-pub use error::{ConfigError, Error, InitError, Result};
-pub use secure::{SecureString, SecureStringExt};
-pub use validator::KeyStatus;
+pub use generate::{ApiKey, GenerateError, Hash, NoHash};
+pub use manager::{ApiKeyManager, InitError};
+pub use shared::hasher::{HashError, KeyHasher};
+pub use shared::secure::{SecureString, SecureStringExt};
+pub use verify::{KeyStatus, VerifyError};
 
-// Re-export secrecy traits for convenience
+// Re-export secrecy's ExposeSecret trait for convenience.
 pub use secrecy::ExposeSecret;

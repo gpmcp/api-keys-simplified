@@ -1,6 +1,4 @@
-use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, HashConfig, KeyConfig, KeyStatus, SecureString,
-};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, SecureString};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -9,7 +7,8 @@ use std::thread;
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_generation_and_uniqueness() {
     // Tests: RNG thread safety, key uniqueness, synchronized starts
-    let generator = Arc::new(ApiKeyManagerV0::init_default_config("sk").unwrap());
+    let generator =
+        Arc::new(ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap());
     let barrier = Arc::new(Barrier::new(10));
     let mut handles = vec![];
 
@@ -55,13 +54,13 @@ fn test_concurrent_generation_and_uniqueness() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_verification_and_checksum() {
     // Tests: Argon2 thread safety, checksum verification (enabled by default), Arc-wrapped SecureString
-    let config = KeyConfig::default();
     let generator = Arc::new(
-        ApiKeyManagerV0::init(
-            "pk",
-            config,
-            HashConfig::default(),
-            std::time::Duration::ZERO,
+        ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("pk")
+                .grace_period(std::time::Duration::ZERO)
+                .build()
+                .unwrap(),
         )
         .unwrap(),
     );
@@ -93,7 +92,7 @@ fn test_concurrent_verification_and_checksum() {
                     hash_ok += 1;
                 }
                 // Test checksum verification
-                if gen.verify_checksum(&key).unwrap() {
+                if gen.verify_checksum(&key).unwrap() == KeyStatus::Valid {
                     checksum_ok += 1;
                 }
             }
@@ -112,19 +111,21 @@ fn test_concurrent_verification_and_checksum() {
 #[test]
 fn test_clone_safety_and_config_isolation() {
     // Tests: Clone safety, different configs don't interfere, cross-verification
-    let gen1 = ApiKeyManagerV0::init(
-        "g1",
-        KeyConfig::balanced(),
-        HashConfig::balanced(),
-        std::time::Duration::ZERO,
+    let gen1 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("g1")
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let gen2_cloned = gen1.clone();
-    let gen3 = ApiKeyManagerV0::init(
-        "g3",
-        KeyConfig::high_security(),
-        HashConfig::high_security(),
-        std::time::Duration::ZERO,
+    let gen3 = ApiKeyManager::new(
+        ConfigBuilder::high_security()
+            .prefix("g3")
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
@@ -197,7 +198,15 @@ fn test_clone_safety_and_config_isolation() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_high_contention_mixed_operations() {
     // Tests: High load, mixed gen/verify operations, high-security config under stress
-    let generator = Arc::new(ApiKeyManagerV0::init_high_security_config("stress").unwrap());
+    let generator = Arc::new(
+        ApiKeyManager::new(
+            ConfigBuilder::high_security()
+                .prefix("stress")
+                .build()
+                .unwrap(),
+        )
+        .unwrap(),
+    );
 
     let mut handles = vec![];
     for thread_id in 0..20 {

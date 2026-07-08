@@ -20,10 +20,11 @@ A secure Rust library for generating and validating API keys with built-in secur
 ## Quick Example
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, Environment, KeyConfig, HashConfig};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, ExposeSecret};
 
-// Generate with checksum (enabled by default - 2900x faster DoS protection)
-let manager = ApiKeyManager::init_default_config("myapp_sk")?;
+// Build a validated config (checksum enabled by default - 2900x faster DoS protection)
+let config = ConfigBuilder::new().prefix("myapp_sk").build()?;
+let manager = ApiKeyManager::new(config)?;
 let api_key = manager.generate(Environment::production())?;
 
 // Show to user once (they must save it)

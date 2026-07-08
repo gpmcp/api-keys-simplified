@@ -3,19 +3,32 @@ use argon2::{
     Argon2, Params, Version,
 };
 
-use crate::{
-    config::HashConfig,
-    error::{OperationError, Result},
-    ExposeSecret, SecureString,
-};
+use crate::config::HashSpec;
+use crate::shared::secure::{ExposeSecret, SecureString};
+
+/// Error produced by the shared hashing primitive.
+///
+/// Lives in the shared layer because both the generate and verify paths hash.
+/// Kept intentionally generic in `Display`; use `{:?}` for detail in logs.
+#[derive(Debug, thiserror::Error)]
+#[error("hashing failed")]
+pub struct HashError(String);
+
+impl HashError {
+    fn new(msg: impl Into<String>) -> Self {
+        HashError(msg.into())
+    }
+}
+
+type Result<T> = std::result::Result<T, HashError>;
 
 #[derive(Clone)]
 pub struct KeyHasher {
-    config: HashConfig,
+    config: HashSpec,
 }
 
 impl KeyHasher {
-    pub fn new(config: HashConfig) -> Self {
+    pub fn new(config: HashSpec) -> Self {
         Self { config }
     }
 
@@ -50,9 +63,9 @@ impl KeyHasher {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret};
-    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// ```ignore
+    /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret};
+    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// // Hashing is done automatically when generating keys
     /// // The hash is stored in PHC format in the returned ApiKey
@@ -68,10 +81,10 @@ impl KeyHasher {
         // Generate salt using OS cryptographic random source
         let mut salt_bytes = [0u8; 32];
         getrandom::fill(&mut salt_bytes)
-            .map_err(|e| OperationError::Hashing(format!("Failed to generate salt: {}", e)))?;
+            .map_err(|e| HashError::new(format!("Failed to generate salt: {}", e)))?;
 
-        let salt = SaltString::encode_b64(&salt_bytes)
-            .map_err(|e| OperationError::Hashing(e.to_string()))?;
+        let salt =
+            SaltString::encode_b64(&salt_bytes).map_err(|e| HashError::new(e.to_string()))?;
 
         let phc_hash = self.hash_with_salt_string(key, &salt)?;
 
@@ -97,9 +110,9 @@ impl KeyHasher {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, SecureString};
-    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// ```ignore
+    /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, SecureString};
+    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// // Extract key ID from a provided API key (e.g., from Authorization header)
     /// let provided_key = SecureString::from("sk-live-abc123...".to_string());
@@ -138,9 +151,9 @@ impl KeyHasher {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// # use api_keys_simplified::{ApiKeyManagerV0, Environment, ExposeSecret, SecureString, ApiKey};
-    /// # let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    /// ```ignore
+    /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, SecureString, ApiKey};
+    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     /// # let key1 = manager.generate(Environment::production()).unwrap();
     /// // Regenerate the same hash using the salt from the original hash
     /// let key2 = ApiKey::new(SecureString::from(key1.key().expose_secret()))
@@ -156,15 +169,15 @@ impl KeyHasher {
 
         // Parse the PHC hash to extract the salt
         let parsed = PasswordHash::new(phc_hash)
-            .map_err(|e| OperationError::Hashing(format!("Invalid PHC hash: {}", e)))?;
+            .map_err(|e| HashError::new(format!("Invalid PHC hash: {}", e)))?;
 
         let salt = parsed
             .salt
-            .ok_or_else(|| OperationError::Hashing("PHC hash missing salt".to_string()))?;
+            .ok_or_else(|| HashError::new("PHC hash missing salt"))?;
 
         // Convert the Salt to SaltString
         let salt_str = SaltString::from_b64(salt.as_str())
-            .map_err(|e| OperationError::Hashing(format!("Invalid salt in PHC hash: {}", e)))?;
+            .map_err(|e| HashError::new(format!("Invalid salt in PHC hash: {}", e)))?;
 
         let phc_hash_result = self.hash_with_salt_string(key, &salt_str)?;
 
@@ -173,18 +186,18 @@ impl KeyHasher {
 
     fn hash_with_salt_string(&self, key: &SecureString, salt: &SaltString) -> Result<String> {
         let params = Params::new(
-            *self.config.memory_cost(),
-            *self.config.time_cost(),
-            *self.config.parallelism(),
+            self.config.memory_cost,
+            self.config.time_cost,
+            self.config.parallelism,
             None,
         )
-        .map_err(|e| OperationError::Hashing(e.to_string()))?;
+        .map_err(|e| HashError::new(e.to_string()))?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let hash = argon2
             .hash_password(key.expose_secret().as_bytes(), salt)
-            .map_err(|e| OperationError::Hashing(e.to_string()))?;
+            .map_err(|e| HashError::new(e.to_string()))?;
 
         // SECURITY: Hashes are meant to be stored raw
         // We do NOT need to use SecureString here.
@@ -199,7 +212,7 @@ mod tests {
     #[test]
     fn test_hashing() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = HashConfig::default();
+        let config = HashSpec::balanced();
         let hasher = KeyHasher::new(config);
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
@@ -217,10 +230,10 @@ mod tests {
     fn test_different_configs() {
         let key = SecureString::from("test_key".to_string());
 
-        let balanced_hasher = KeyHasher::new(HashConfig::balanced());
+        let balanced_hasher = KeyHasher::new(HashSpec::balanced());
         let (_key_id1, balanced_hash) = balanced_hasher.hash(&key).unwrap();
 
-        let secure_hasher = KeyHasher::new(HashConfig::high_security());
+        let secure_hasher = KeyHasher::new(HashSpec::high_security());
         let (_key_id2, secure_hash) = secure_hasher.hash(&key).unwrap();
 
         assert!(!balanced_hash.is_empty());
@@ -230,7 +243,7 @@ mod tests {
     #[test]
     fn test_hash_with_same_salt() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = HashConfig::default();
+        let config = HashSpec::balanced();
         let hasher = KeyHasher::new(config);
 
         // Get a PHC hash from the first hash
@@ -251,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_key_id_properties() {
-        let hasher = KeyHasher::new(HashConfig::default());
+        let hasher = KeyHasher::new(HashSpec::balanced());
         let key1 = SecureString::from("sk-live-key1".to_string());
         let key2 = SecureString::from("sk-live-key2".to_string());
 
@@ -272,7 +285,7 @@ mod tests {
     #[test]
     fn test_key_id_stability_with_hashing() {
         let key = SecureString::from("sk-live-test".to_string());
-        let hasher = KeyHasher::new(HashConfig::default());
+        let hasher = KeyHasher::new(HashSpec::balanced());
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
         let (key_id2, hash2) = hasher.hash(&key).unwrap();

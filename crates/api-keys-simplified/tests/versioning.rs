@@ -1,10 +1,10 @@
 use api_keys_simplified::{
-    ApiKeyManagerV0, Environment, ExposeSecret, HashConfig, KeyConfig, KeyStatus, KeyVersion,
+    ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus, KeyVersion,
 };
 
 #[test]
 fn test_unversioned_key_format() {
-    let manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -19,12 +19,13 @@ fn test_unversioned_key_format() {
 
 #[test]
 fn test_versioned_key_v1_format() {
-    let config = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
@@ -37,12 +38,13 @@ fn test_versioned_key_v1_format() {
 
 #[test]
 fn test_versioned_key_v2_format() {
-    let config = KeyConfig::default().with_version(KeyVersion::V2);
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V2)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
@@ -55,12 +57,13 @@ fn test_versioned_key_v2_format() {
 
 #[test]
 fn test_custom_version_number() {
-    let config = KeyConfig::default().with_version(KeyVersion::new(42));
-    let manager = ApiKeyManagerV0::init(
-        "api",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("api")
+            .version(KeyVersion::new(42))
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::staging()).unwrap();
@@ -101,25 +104,28 @@ fn test_version_display() {
 #[test]
 fn test_different_versions_verify_correctly() {
     // Generate keys with different versions
-    let manager_v0 = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let manager_v0 =
+        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key_v0 = manager_v0.generate(Environment::production()).unwrap();
 
-    let config_v1 = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager_v1 = ApiKeyManagerV0::init(
-        "sk",
-        config_v1,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager_v1 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key_v1 = manager_v1.generate(Environment::production()).unwrap();
 
-    let config_v2 = KeyConfig::default().with_version(KeyVersion::V2);
-    let manager_v2 = ApiKeyManagerV0::init(
-        "sk",
-        config_v2,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager_v2 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V2)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key_v2 = manager_v2.generate(Environment::production()).unwrap();
@@ -161,12 +167,13 @@ fn test_different_versions_verify_correctly() {
 
 #[test]
 fn test_versioned_keys_support_all_environments() {
-    let config = KeyConfig::default().with_version(KeyVersion::V1);
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 
@@ -209,14 +216,14 @@ fn test_versioned_keys_support_all_environments() {
 fn test_versioned_keys_with_different_separators() {
     use api_keys_simplified::Separator;
 
-    let config = KeyConfig::default()
-        .with_version(KeyVersion::V1)
-        .with_separator(Separator::Slash);
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .separator(Separator::Slash)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
@@ -232,14 +239,14 @@ fn test_versioned_keys_with_different_separators() {
 
 #[test]
 fn test_versioned_keys_without_checksum() {
-    let config = KeyConfig::default()
-        .with_version(KeyVersion::V1)
-        .disable_checksum();
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .no_checksum()
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
@@ -258,12 +265,13 @@ fn test_versioned_keys_without_checksum() {
 
 #[test]
 fn test_versioned_keys_with_high_security() {
-    let config = KeyConfig::high_security().with_version(KeyVersion::V2);
-    let manager = ApiKeyManagerV0::init(
-        "sk",
-        config,
-        HashConfig::high_security(),
-        std::time::Duration::ZERO,
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::high_security()
+            .prefix("sk")
+            .version(KeyVersion::V2)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
@@ -281,16 +289,18 @@ fn test_versioned_keys_with_high_security() {
 #[test]
 fn test_migration_scenario() {
     // Simulate old system
-    let old_manager = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let old_manager =
+        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let old_key = old_manager.generate(Environment::production()).unwrap();
 
     // Simulate new system with versioning
-    let new_config = KeyConfig::default().with_version(KeyVersion::V1);
-    let new_manager = ApiKeyManagerV0::init(
-        "sk",
-        new_config,
-        HashConfig::default(),
-        std::time::Duration::ZERO,
+    let new_manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .version(KeyVersion::V1)
+            .grace_period(std::time::Duration::ZERO)
+            .build()
+            .unwrap(),
     )
     .unwrap();
     let new_key = new_manager.generate(Environment::production()).unwrap();

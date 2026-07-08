@@ -133,51 +133,19 @@ pub fn parse_token(input: &[u8], has_checksum: bool) -> IResult<&[u8], Parts<'_>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ApiKey, ApiKeyManagerV0, Environment, Hash, HashConfig, KeyConfig, KeyVersion};
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
-    use chrono::{DateTime, Utc};
-    use secrecy::ExposeSecret;
-    fn gen(
-        with_version: bool,
-        with_checksum: bool,
-        with_expiry: bool,
-        high_spec: bool,
-    ) -> (ApiKey<Hash>, DateTime<Utc>) {
-        let mut config = if high_spec {
-            KeyConfig::high_security()
-        } else {
-            KeyConfig::default()
-        };
-        if with_version {
-            config = config.with_version(KeyVersion::V1);
-        }
-        if !with_checksum {
-            config = config.disable_checksum();
-        }
-        let hash_config = if high_spec {
-            HashConfig::high_security()
-        } else {
-            HashConfig::default()
-        };
+    use chrono::Utc;
 
-        let generator =
-            ApiKeyManagerV0::init("text", config, hash_config, std::time::Duration::ZERO).unwrap();
-        let ts = Utc::now();
-        let key = if with_expiry {
-            generator
-                .generate_with_expiry(Environment::test(), ts.clone())
-                .unwrap()
-        } else {
-            generator.generate(Environment::test()).unwrap()
-        };
-
-        (key, ts)
-    }
+    /// Self-contained: assemble a `key.expiry.checksum` token from raw bytes and
+    /// confirm the parser recovers the embedded expiry timestamp. This keeps the
+    /// leaf parser test independent of the generate/manager layers above it.
     #[test]
     fn simple_test_parse_token() {
-        let (key, ts) = gen(true, true, true, false);
-        let token = key.key().expose_secret();
+        let ts = Utc::now();
+        let expiry_b64 = URL_SAFE_NO_PAD.encode(ts.timestamp().to_be_bytes());
+        let token = format!("text-v1-test-ZGF0YQ.{}.deadbeef", expiry_b64);
+
         let parts = parse_token(token.as_bytes(), true).unwrap().1;
         let exp = parts.expiry_b64.unwrap();
         let exp_be_by = URL_SAFE_NO_PAD.decode(exp).unwrap();
@@ -185,6 +153,7 @@ mod tests {
             ts.timestamp(),
             i64::from_be_bytes(exp_be_by.try_into().unwrap())
         );
+        assert_eq!(parts.checksum, Some(b"deadbeef" as &[u8]));
     }
 
     // Edge case tests

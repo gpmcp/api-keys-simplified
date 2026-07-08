@@ -1,9 +1,9 @@
 use api_keys_simplified::ExposeSecret;
-use api_keys_simplified::{ApiKeyManagerV0, Environment, KeyStatus};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus};
 
 #[test]
 fn test_basic_flow() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.expose_hash().hash();
 
@@ -19,7 +19,7 @@ fn test_basic_flow() {
 
 #[test]
 fn test_key_format() {
-    let generator = ApiKeyManagerV0::init_default_config("pk").unwrap();
+    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("pk").build().unwrap()).unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -29,7 +29,8 @@ fn test_key_format() {
 
 #[test]
 fn test_different_environments() {
-    let generator = ApiKeyManagerV0::init_default_config("key").unwrap();
+    let generator =
+        ApiKeyManager::new(ConfigBuilder::new().prefix("key").build().unwrap()).unwrap();
 
     let dev = generator.generate(Environment::dev()).unwrap();
     let test = generator.generate(Environment::test()).unwrap();
@@ -44,7 +45,7 @@ fn test_different_environments() {
 
 #[test]
 fn test_verification_with_wrong_key() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.expose_hash().hash();
 
@@ -57,7 +58,7 @@ fn test_verification_with_wrong_key() {
 
 #[test]
 fn test_key_uniqueness() {
-    let generator = ApiKeyManagerV0::init_default_config("sk").unwrap();
+    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
     let key1 = generator.generate(Environment::production()).unwrap();
     let key2 = generator.generate(Environment::production()).unwrap();
 
