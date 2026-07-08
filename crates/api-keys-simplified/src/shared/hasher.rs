@@ -14,15 +14,28 @@ type HmacSha256 = Hmac<Sha256>;
 /// Error produced by the shared hashing primitive.
 ///
 /// Lives in the shared layer because both the generate and verify paths hash.
-/// Kept intentionally generic in `Display`; use `{:?}` for detail in logs.
+/// Each variant wraps the underlying error verbatim rather than stringifying it.
 #[derive(Debug, thiserror::Error)]
-#[error("hashing failed")]
-pub struct HashError(String);
+pub enum HashError {
+    /// Secure RNG failure while generating an Argon2 salt.
+    #[error(transparent)]
+    Rng(#[from] getrandom::Error),
 
-impl HashError {
-    fn new(msg: impl Into<String>) -> Self {
-        HashError(msg.into())
-    }
+    /// PHC / salt / password-hashing failure (argon2's `password_hash` layer).
+    #[error(transparent)]
+    PasswordHash(#[from] argon2::password_hash::Error),
+
+    /// Invalid Argon2 parameters.
+    #[error(transparent)]
+    Argon2(#[from] argon2::Error),
+
+    /// The HMAC key (pepper) had an invalid length.
+    #[error(transparent)]
+    HmacKey(#[from] hmac::digest::InvalidLength),
+
+    /// The supplied PHC hash string had no salt to reuse.
+    #[error("PHC hash missing salt")]
+    MissingSalt,
 }
 
 type Result<T> = std::result::Result<T, HashError>;
@@ -69,10 +82,8 @@ impl KeyHasher {
             HashAlgo::Argon2id(params) => {
                 // Random salt from the OS CSPRNG, embedded in the PHC string.
                 let mut salt_bytes = [0u8; 32];
-                getrandom::fill(&mut salt_bytes)
-                    .map_err(|e| HashError::new(format!("Failed to generate salt: {}", e)))?;
-                let salt = SaltString::encode_b64(&salt_bytes)
-                    .map_err(|e| HashError::new(e.to_string()))?;
+                getrandom::fill(&mut salt_bytes)?;
+                let salt = SaltString::encode_b64(&salt_bytes)?;
                 argon2_hash(params, key, &salt)?
             }
         };
@@ -142,13 +153,9 @@ impl KeyHasher {
                 format!("hmac-sha256${}", hex_hmac(pepper, key_bytes)?)
             }
             HashAlgo::Argon2id(params) => {
-                let parsed = PasswordHash::new(existing)
-                    .map_err(|e| HashError::new(format!("Invalid PHC hash: {}", e)))?;
-                let salt = parsed
-                    .salt
-                    .ok_or_else(|| HashError::new("PHC hash missing salt"))?;
-                let salt_str = SaltString::from_b64(salt.as_str())
-                    .map_err(|e| HashError::new(format!("Invalid salt in PHC hash: {}", e)))?;
+                let parsed = PasswordHash::new(existing)?;
+                let salt = parsed.salt.ok_or(HashError::MissingSalt)?;
+                let salt_str = SaltString::from_b64(salt.as_str())?;
                 argon2_hash(params, key, &salt_str)?
             }
         };
@@ -219,8 +226,7 @@ fn hex_sha256(bytes: &[u8]) -> String {
 }
 
 fn hex_hmac(pepper: &SecureString, bytes: &[u8]) -> Result<String> {
-    let mut mac = HmacSha256::new_from_slice(pepper.expose_secret().as_bytes())
-        .map_err(|e| HashError::new(format!("invalid HMAC key: {e}")))?;
+    let mut mac = HmacSha256::new_from_slice(pepper.expose_secret().as_bytes())?;
     mac.update(bytes);
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
@@ -231,13 +237,10 @@ fn argon2_hash(params: &Argon2Params, key: &SecureString, salt: &SaltString) -> 
         params.time_cost,
         params.parallelism,
         None,
-    )
-    .map_err(|e| HashError::new(e.to_string()))?;
+    )?;
 
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, p);
-    let hash = argon2
-        .hash_password(key.expose_secret().as_bytes(), salt)
-        .map_err(|e| HashError::new(e.to_string()))?;
+    let hash = argon2.hash_password(key.expose_secret().as_bytes(), salt)?;
 
     // SECURITY: hashes are meant to be stored raw; no SecureString needed.
     Ok(hash.to_string())

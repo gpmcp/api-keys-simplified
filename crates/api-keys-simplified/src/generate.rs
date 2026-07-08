@@ -22,16 +22,20 @@ use crate::shared::CHECKSUM_SEPARATOR;
 /// Error produced while generating (and hashing) a new key.
 ///
 /// Distinct from the verify path's error type: a caller of `generate` can never
-/// receive a "verification" variant and vice versa.
+/// receive a "verification" variant and vice versa. Each variant wraps the
+/// underlying error verbatim rather than stringifying it.
 #[derive(Debug, thiserror::Error)]
 pub enum GenerateError {
-    #[error("secure random source failed")]
-    Rng(String),
+    #[error(transparent)]
+    Rng(#[from] getrandom::Error),
 
-    #[error("key encoding failed")]
-    Encoding(String),
+    #[error(transparent)]
+    Encoding(#[from] base64::EncodeSliceError),
 
-    #[error("hashing failed")]
+    #[error(transparent)]
+    Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
     Hashing(#[from] crate::shared::hasher::HashError),
 }
 
@@ -132,8 +136,7 @@ impl Generator {
 
     fn random_entropy(&self) -> Result<Zeroizing<Vec<u8>>> {
         let mut bytes = Zeroizing::new(vec![0u8; self.config.entropy_bytes()]);
-        getrandom::fill(&mut bytes)
-            .map_err(|e| GenerateError::Rng(format!("failed to get random bytes: {e}")))?;
+        getrandom::fill(&mut bytes)?;
         Ok(bytes)
     }
 
@@ -149,9 +152,7 @@ impl Generator {
         // Encode entropy directly into a zeroizing buffer (no intermediate String).
         let encoded_len = (4 * bytes.len()).div_ceil(3);
         let mut encoded = Zeroizing::new(vec![0u8; encoded_len]);
-        URL_SAFE_NO_PAD
-            .encode_slice(&bytes, &mut encoded)
-            .map_err(|e| GenerateError::Encoding(format!("base64 encoding failed: {e}")))?;
+        URL_SAFE_NO_PAD.encode_slice(&bytes, &mut encoded)?;
 
         let sep: &'static str = self.config.separator().into();
         let env: &'static str = environment.into();
@@ -206,8 +207,7 @@ impl Generator {
             key.append(&mut checksum.into_bytes());
         }
 
-        let key = String::from_utf8(key)
-            .map_err(|_| GenerateError::Encoding("produced non-UTF-8 key".to_string()))?;
+        let key = String::from_utf8(key)?;
         Ok(SecureString::from(key))
     }
 
