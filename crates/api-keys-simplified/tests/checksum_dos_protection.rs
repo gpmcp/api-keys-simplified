@@ -7,8 +7,14 @@ use std::time::Instant;
 #[test]
 fn test_checksum_prevents_expensive_verification() {
     // This test verifies VULN-1 fix: checksum validation happens BEFORE Argon2
-    let generator =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("dos").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("dos")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Generate a valid key with checksum
     let valid_key = generator.generate(Environment::test()).unwrap();
@@ -148,6 +154,7 @@ fn test_without_checksum_still_works() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("nochk")
+            .pepper("test-pepper")
             .no_checksum()
             .grace_period(std::time::Duration::ZERO)
             .build()

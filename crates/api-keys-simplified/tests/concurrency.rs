@@ -7,8 +7,16 @@ use std::thread;
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_concurrent_generation_and_uniqueness() {
     // Tests: RNG thread safety, key uniqueness, synchronized starts
-    let generator =
-        Arc::new(ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap());
+    let generator = Arc::new(
+        ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("sk")
+                .pepper("test-pepper")
+                .build()
+                .unwrap(),
+        )
+        .unwrap(),
+    );
     let barrier = Arc::new(Barrier::new(10));
     let mut handles = vec![];
 
@@ -58,6 +66,7 @@ fn test_concurrent_verification_and_checksum() {
         ApiKeyManager::new(
             ConfigBuilder::new()
                 .prefix("pk")
+                .pepper("test-pepper")
                 .grace_period(std::time::Duration::ZERO)
                 .build()
                 .unwrap(),
@@ -114,6 +123,7 @@ fn test_clone_safety_and_config_isolation() {
     let gen1 = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("g1")
+            .pepper("test-pepper")
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),

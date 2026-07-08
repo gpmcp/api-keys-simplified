@@ -10,8 +10,13 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // 1. Describe the key format. All validation happens here, up front, and
-//! //    every problem is reported together.
-//! let config = ConfigBuilder::new().prefix("sk").build()?;
+//! //    every problem is reported together. The default hash is keyed
+//! //    HMAC-SHA256, so a server-side pepper is required (store it separately
+//! //    from your key database). Prefer `HashAlgo::Sha256` for an unkeyed hash.
+//! let config = ConfigBuilder::new()
+//!     .prefix("sk")
+//!     .pepper("keep-this-in-a-secrets-manager")
+//!     .build()?;
 //!
 //! // 2. Build a manager from the validated config.
 //! let manager = ApiKeyManager::new(config)?;

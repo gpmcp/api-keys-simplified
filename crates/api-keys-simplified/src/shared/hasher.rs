@@ -112,7 +112,7 @@ impl KeyHasher {
     ///
     /// ```ignore
     /// # use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, SecureString};
-    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    /// # let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").pepper("p").build().unwrap()).unwrap();
     /// # let key = manager.generate(Environment::production()).unwrap();
     /// // Extract key ID from a provided API key (e.g., from Authorization header)
     /// let provided_key = SecureString::from("sk-live-abc123...".to_string());

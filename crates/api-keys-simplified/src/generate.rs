@@ -282,7 +282,11 @@ mod tests {
 
     #[test]
     fn generates_prefixed_key_with_checksum() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let g = generator(cfg);
         let key = g.raw_key(Environment::Production, None).unwrap();
         let s = key.expose_secret();
@@ -294,6 +298,7 @@ mod tests {
     fn version_component_is_embedded() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .build()
             .unwrap();
@@ -305,6 +310,7 @@ mod tests {
     fn no_checksum_has_no_dot() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .no_checksum()
             .build()
             .unwrap();
@@ -318,6 +324,7 @@ mod tests {
     fn separator_is_honored() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .separator(Separator::Slash)
             .build()
             .unwrap();
@@ -329,7 +336,11 @@ mod tests {
 
     #[test]
     fn custom_environment_label_is_emitted() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let key = generator(cfg)
             .raw_key(Environment::custom("prod"), None)
             .unwrap();
@@ -338,7 +349,11 @@ mod tests {
 
     #[test]
     fn invalid_custom_environment_is_rejected() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let g = generator(cfg);
         // Contains a separator/dot/space or is version-like → rejected.
         for bad in ["pr od", "pr.od", "pr-od", "v1", "PROD", ""] {
@@ -354,6 +369,7 @@ mod tests {
     fn no_environment_drops_the_env_segment() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .no_environment()
             .build()
             .unwrap();
@@ -370,6 +386,7 @@ mod tests {
     fn no_environment_with_version() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .no_environment()
             .build()
@@ -386,6 +403,7 @@ mod tests {
     fn underscore_separator_produces_stripe_style_key() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .separator(Separator::Underscore)
             .build()
             .unwrap();
@@ -403,11 +421,13 @@ mod tests {
         use crate::shared::secure::SecureStringExt;
         let small = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .entropy(16)
             .build()
             .unwrap();
         let big = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .entropy(48)
             .build()
             .unwrap();

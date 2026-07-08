@@ -110,7 +110,14 @@ mod tests {
     use crate::shared::secure::{ExposeSecret, SecureStringExt};
 
     fn manager() -> ApiKeyManager {
-        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap()
+        ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("sk")
+                .pepper("test-pepper")
+                .build()
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -118,8 +125,8 @@ mod tests {
         let m = manager();
         let key = m.generate(Environment::production()).unwrap();
         assert!(key.key().expose_secret().starts_with("sk-live-"));
-        // Default hash algorithm is now SHA-256 (self-describing tag).
-        assert!(key.expose_hash().hash().starts_with("sha256$"));
+        // Default hash algorithm is keyed HMAC-SHA256 (self-describing tag).
+        assert!(key.expose_hash().hash().starts_with("hmac-sha256$"));
         assert_eq!(
             m.verify(key.key(), key.expose_hash().hash()).unwrap(),
             KeyStatus::Valid
@@ -169,6 +176,7 @@ mod tests {
         let m = ApiKeyManager::new(
             ConfigBuilder::new()
                 .prefix("sk")
+                .pepper("test-pepper")
                 .separator(Separator::Underscore)
                 .build()
                 .unwrap(),
@@ -199,6 +207,7 @@ mod tests {
         let m = ApiKeyManager::new(
             ConfigBuilder::new()
                 .prefix("sk")
+                .pepper("test-pepper")
                 .no_environment()
                 .build()
                 .unwrap(),

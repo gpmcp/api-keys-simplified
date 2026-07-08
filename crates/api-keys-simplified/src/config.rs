@@ -442,13 +442,18 @@ impl Default for ConfigBuilder {
             checksum_enabled: true,
             checksum_algo: ChecksumAlgo::Blake3,
             checksum_bits: 128, // 32 hex chars
-            // Default: fast SHA-256. API keys are high-entropy (>=128-bit)
-            // random values, for which NIST SP 800-63B permits an approved fast
-            // hash; the slow memory-hard hashers are only required for
-            // low-entropy secrets like passwords. Use `.hash(HashAlgo::HmacSha256
-            // { pepper })` for the recommended keyed variant, or
-            // `ConfigBuilder::high_security()` for Argon2id.
-            hash: HashAlgo::Sha256,
+            // Default: keyed HMAC-SHA256. API keys are high-entropy (>=128-bit)
+            // random values, so a fast hash is sufficient (NIST SP 800-63B), and
+            // keying with a server-side pepper additionally makes a leaked key
+            // database useless without the separately-stored pepper.
+            //
+            // The pepper is REQUIRED: `build()` fails with `ConfigError::EmptyPepper`
+            // unless you supply one via `.pepper(...)`. To opt out of keying, set
+            // an explicit `.hash(HashAlgo::Sha256)`; for Argon2id use
+            // `.hash(HashAlgo::Argon2id(..))` or `ConfigBuilder::high_security()`.
+            hash: HashAlgo::HmacSha256 {
+                pepper: SecureString::from(String::new()),
+            },
             grace_period: Duration::from_secs(10),
         }
     }
@@ -519,10 +524,23 @@ impl ConfigBuilder {
 
     /// Select the storage-hash strategy. See [`HashAlgo`].
     ///
-    /// Default is [`HashAlgo::Sha256`]. For DB-leak resistance, prefer
-    /// [`HashAlgo::HmacSha256`] with a server-side pepper.
+    /// Default is [`HashAlgo::HmacSha256`] (keyed), which requires a pepper —
+    /// set it with [`ConfigBuilder::pepper`]. Use [`HashAlgo::Sha256`] for an
+    /// unkeyed fast hash, or [`HashAlgo::Argon2id`] for memory-hard hashing.
     pub fn hash(mut self, algo: HashAlgo) -> Self {
         self.hash = algo;
+        self
+    }
+
+    /// Set the server-side pepper for the default keyed [`HashAlgo::HmacSha256`].
+    ///
+    /// The pepper MUST be stored separately from the key database (environment
+    /// variable, secrets manager, or HSM). This is a convenience for the common
+    /// case; it is equivalent to `.hash(HashAlgo::HmacSha256 { pepper })`.
+    pub fn pepper(mut self, pepper: impl Into<SecureString>) -> Self {
+        self.hash = HashAlgo::HmacSha256 {
+            pepper: pepper.into(),
+        };
         self
     }
 
@@ -684,12 +702,32 @@ mod tests {
 
     #[test]
     fn valid_default_config_builds() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        // The default hash is keyed HMAC-SHA256, which requires a pepper.
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         assert_eq!(cfg.prefix().as_str(), "sk");
         assert_eq!(cfg.entropy_bytes(), 24);
         // Default checksum is 128 bits == 32 hex chars.
         assert_eq!(cfg.checksum().unwrap().length, 32);
         assert_eq!(cfg.version(), KeyVersion::NONE);
+        assert!(matches!(cfg.hash(), HashAlgo::HmacSha256 { .. }));
+    }
+
+    #[test]
+    fn default_hash_requires_a_pepper() {
+        // Without a pepper the default HMAC config is rejected up front.
+        let err = ConfigBuilder::new().prefix("sk").build().unwrap_err();
+        assert!(err.errors().contains(&ConfigError::EmptyPepper));
+
+        // Opting into an unkeyed algorithm removes the requirement.
+        assert!(ConfigBuilder::new()
+            .prefix("sk")
+            .hash(HashAlgo::Sha256)
+            .build()
+            .is_ok());
     }
 
     #[test]
@@ -701,6 +739,7 @@ mod tests {
         // A custom in-range value round-trips to hex chars in the spec.
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(160))
             .build()
             .unwrap();
@@ -737,14 +776,17 @@ mod tests {
 
     #[test]
     fn missing_prefix_is_reported() {
+        // With no prefix and the default (pepper-less) HMAC config, both problems
+        // are accumulated; assert the prefix error is present.
         let err = ConfigBuilder::new().build().unwrap_err();
-        assert_eq!(err.errors(), &[ConfigError::MissingPrefix]);
+        assert!(err.errors().contains(&ConfigError::MissingPrefix));
     }
 
     #[test]
     fn no_checksum_yields_none() {
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .no_checksum()
             .build()
             .unwrap();

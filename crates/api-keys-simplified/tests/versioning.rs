@@ -4,7 +4,14 @@ use api_keys_simplified::{
 
 #[test]
 fn test_unversioned_key_format() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -22,6 +29,7 @@ fn test_versioned_key_v1_format() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -41,6 +49,7 @@ fn test_versioned_key_v2_format() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V2)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -60,6 +69,7 @@ fn test_custom_version_number() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("api")
+            .pepper("test-pepper")
             .version(KeyVersion::new(42))
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -104,13 +114,20 @@ fn test_version_display() {
 #[test]
 fn test_different_versions_verify_correctly() {
     // Generate keys with different versions
-    let manager_v0 =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager_v0 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key_v0 = manager_v0.generate(Environment::production()).unwrap();
 
     let manager_v1 = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -122,6 +139,7 @@ fn test_different_versions_verify_correctly() {
     let manager_v2 = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V2)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -170,6 +188,7 @@ fn test_versioned_keys_support_all_environments() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -219,6 +238,7 @@ fn test_versioned_keys_with_different_separators() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .separator(Separator::Slash)
             .grace_period(std::time::Duration::ZERO)
@@ -242,6 +262,7 @@ fn test_versioned_keys_without_checksum() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .no_checksum()
             .grace_period(std::time::Duration::ZERO)
@@ -289,14 +310,21 @@ fn test_versioned_keys_with_high_security() {
 #[test]
 fn test_migration_scenario() {
     // Simulate old system
-    let old_manager =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let old_manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let old_key = old_manager.generate(Environment::production()).unwrap();
 
     // Simulate new system with versioning
     let new_manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .version(KeyVersion::V1)
             .grace_period(std::time::Duration::ZERO)
             .build()

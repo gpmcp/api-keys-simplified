@@ -10,8 +10,8 @@ A secure Rust library for generating and validating API keys with built-in secur
 ## Features
 
 - **Cryptographically secure** key generation (192-bit entropy)
-- **Pluggable hashing** — SHA-256 (fast default), HMAC-SHA256 (keyed, recommended),
-  or Argon2id (opt-in). Fast hashes are appropriate for high-entropy keys per
+- **Pluggable hashing** — HMAC-SHA256 (keyed default, needs a pepper), SHA-256
+  (unkeyed), or Argon2id. Fast hashes are appropriate for high-entropy keys per
   NIST SP 800-63B
 - **BLAKE3 checksums** (2900x faster DoS protection)
 - **Constant-time verification** (prevents timing attacks)
@@ -26,8 +26,13 @@ A secure Rust library for generating and validating API keys with built-in secur
 ```rust
 use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus, ExposeSecret};
 
-// Build a validated config (checksum enabled by default - 2900x faster DoS protection)
-let config = ConfigBuilder::new().prefix("myapp_sk").build()?;
+// Build a validated config. The default hash is keyed HMAC-SHA256, so supply a
+// server-side pepper (store it separately from your key database). Checksum is
+// enabled by default for 2900x faster DoS protection.
+let config = ConfigBuilder::new()
+    .prefix("myapp_sk")
+    .pepper(std::env::var("API_KEY_PEPPER")?)
+    .build()?;
 let manager = ApiKeyManager::new(config)?;
 let api_key = manager.generate(Environment::production())?;
 

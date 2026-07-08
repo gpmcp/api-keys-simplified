@@ -8,7 +8,14 @@ use std::collections::HashSet;
 fn test_verification_with_invalid_hash() {
     // After timing oracle fix: invalid hash returns Ok(Invalid) instead of Err
     // to prevent timing-based user enumeration attacks
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let any_key = api_keys_simplified::SecureString::from("any_key".to_string());
     let result = generator.verify(&any_key, "invalid_hash_format");
     assert!(result.is_ok());
@@ -17,7 +24,14 @@ fn test_verification_with_invalid_hash() {
 
 #[test]
 fn test_different_keys_same_hash() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key1 = generator.generate(Environment::production()).unwrap();
     let key2 = generator.generate(Environment::production()).unwrap();
 
@@ -41,6 +55,7 @@ fn test_checksum_validation() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("chk")
+            .pepper("test-pepper")
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),
@@ -66,7 +81,14 @@ fn test_checksum_validation() {
 
 #[test]
 fn test_hash_uniqueness_with_same_key() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let hash1 = generator.generate(Environment::production()).unwrap();
     let hash2 = generator.generate(Environment::production()).unwrap();
 
@@ -80,8 +102,14 @@ fn test_collision_resistance() {
     let mut keys = HashSet::new();
     let count = 1000;
 
-    let generator =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("text").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("text")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     for _ in 0..count {
         let key = generator.generate(Environment::test()).unwrap();
         keys.insert(key.key().expose_secret().to_string());
@@ -96,6 +124,7 @@ fn test_key_format_consistency() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("format")
+            .pepper("test-pepper")
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),
@@ -141,7 +170,14 @@ fn test_error_messages_dont_leak_info() {
     // timing attacks, so we test DoS protection errors instead
 
     // Test DoS protection error (oversized input) - this still returns Err
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
     let result = generator.verify(&oversized_key, "some_hash");
     assert!(result.is_err());
@@ -165,7 +201,14 @@ fn test_error_messages_dont_leak_info() {
 
 #[test]
 fn test_oversized_input_error_is_generic() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let oversized_key = api_keys_simplified::SecureString::from("a".repeat(1000));
     let result = generator.verify(&oversized_key, "some_hash");
 

@@ -3,7 +3,14 @@ use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus};
 
 #[test]
 fn test_basic_flow() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.expose_hash().hash();
 
@@ -19,7 +26,14 @@ fn test_basic_flow() {
 
 #[test]
 fn test_key_format() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("pk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("pk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = generator.generate(Environment::test()).unwrap();
     let key_str = key.key().expose_secret();
 
@@ -29,8 +43,14 @@ fn test_key_format() {
 
 #[test]
 fn test_different_environments() {
-    let generator =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("key").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("key")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     let dev = generator.generate(Environment::dev()).unwrap();
     let test = generator.generate(Environment::test()).unwrap();
@@ -45,7 +65,14 @@ fn test_different_environments() {
 
 #[test]
 fn test_verification_with_wrong_key() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = generator.generate(Environment::production()).unwrap();
     let hash = key.expose_hash().hash();
 
@@ -58,7 +85,14 @@ fn test_verification_with_wrong_key() {
 
 #[test]
 fn test_key_uniqueness() {
-    let generator = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let generator = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key1 = generator.generate(Environment::production()).unwrap();
     let key2 = generator.generate(Environment::production()).unwrap();
 

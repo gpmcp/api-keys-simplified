@@ -10,8 +10,8 @@ A secure, Rust library for generating and validating API keys with built-in secu
 ## What It Does
 
 - **Generate** cryptographically secure API keys (192-bit entropy default)
-- **Hash** keys with a pluggable algorithm — fast **SHA-256** (default), keyed
-  **HMAC-SHA256** (recommended), or memory-hard **Argon2id** (opt-in)
+- **Hash** keys with a pluggable algorithm — keyed **HMAC-SHA256** (default,
+  needs a pepper), fast unkeyed **SHA-256**, or memory-hard **Argon2id**
 - **Checksum** keys with BLAKE3 for fast DoS protection (2900x speedup)
 - **Verify** keys with constant-time comparison (prevents timing attacks)
 - **Protect** sensitive data with automatic memory zeroing
@@ -51,9 +51,13 @@ let config = ConfigBuilder::new().prefix("sk").no_environment().build()?;
 use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, KeyStatus, SecureString};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Build a validated config, then initialize the manager
-    //    (checksum enabled by default for out-of-the-box DoS protection)
-    let config = ConfigBuilder::new().prefix("gpmcp_sk").build()?;
+    // 1. Build a validated config, then initialize the manager.
+    //    The default hash is keyed HMAC-SHA256, so supply a server-side pepper
+    //    (store it separately from your key database). Checksum is on by default.
+    let config = ConfigBuilder::new()
+        .prefix("gpmcp_sk")
+        .pepper(std::env::var("API_KEY_PEPPER")?)
+        .build()?;
     let manager = ApiKeyManager::new(config)?;
 
     // 2. Generate a new API key
@@ -140,30 +144,34 @@ Common API key security mistakes:
 ### 🔒 Cryptographic Strength
 
 - **RNG:** OS-level CSPRNG via `getrandom` crate
-- **Hashing:** pluggable via `HashAlgo` — SHA-256 (default), HMAC-SHA256
-  (recommended, keyed with a server pepper), or Argon2id (opt-in)
+- **Hashing:** pluggable via `HashAlgo` — HMAC-SHA256 (default, keyed with a
+  server pepper), SHA-256 (unkeyed), or Argon2id (memory-hard)
 - **Entropy:** 192 bits default (NIST compliant through 2030+)
 - **Standards:** per NIST SP 800-63B, high-entropy (≥128-bit) look-up secrets
   only need an approved *fast* hash; the slow memory-hard hashers are for
-  low-entropy passwords, so a fast hash is the sensible default here
+  low-entropy passwords. The default keys with a pepper so a leaked database
+  alone can't be used to verify keys.
 
 #### Choosing a hash algorithm
 
 ```rust
-use api_keys_simplified::{ConfigBuilder, HashAlgo, Argon2Params, SecureString};
+use api_keys_simplified::{ConfigBuilder, HashAlgo, Argon2Params};
 
-// Default: fast SHA-256 (good for high-entropy random keys)
-let cfg = ConfigBuilder::new().prefix("sk").build()?;
-
-// Recommended for production: keyed HMAC-SHA256. A leaked key database alone
-// cannot be used to verify keys — store the pepper separately (env/secrets/HSM).
-let pepper = SecureString::from(std::env::var("API_KEY_PEPPER")?);
+// Default: keyed HMAC-SHA256. Requires a server-side pepper, stored separately
+// from the key database (env var / secrets manager / HSM). A leaked database
+// alone cannot be used to verify keys.
 let cfg = ConfigBuilder::new()
     .prefix("sk")
-    .hash(HashAlgo::HmacSha256 { pepper })
+    .pepper(std::env::var("API_KEY_PEPPER")?)
     .build()?;
 
-// Opt-in: memory-hard Argon2id (or use ConfigBuilder::high_security()).
+// Unkeyed fast hash (no secret to manage):
+let cfg = ConfigBuilder::new()
+    .prefix("sk")
+    .hash(HashAlgo::Sha256)
+    .build()?;
+
+// Memory-hard Argon2id (or use ConfigBuilder::high_security()):
 let cfg = ConfigBuilder::new()
     .prefix("sk")
     .hash(HashAlgo::Argon2id(Argon2Params::balanced()))
@@ -217,7 +225,11 @@ use api_keys_simplified::{
 use chrono::{Duration, Utc};
 
 // ✅ Checksums enabled by default (DoS protection - use .no_checksum() to turn off)
-let config = ConfigBuilder::new().prefix("myapp_sk").build()?;
+// ✅ Default hash is keyed HMAC-SHA256 — supply a pepper (stored separately)
+let config = ConfigBuilder::new()
+    .prefix("myapp_sk")
+    .pepper(std::env::var("API_KEY_PEPPER")?)
+    .build()?;
 let manager = ApiKeyManager::new(config)?;
 
 // ✅ Never log keys (auto-redacted)
@@ -312,11 +324,12 @@ The error type is split by operation: `ConfigBuilder::build()` returns `ConfigEr
 `verify` returns `VerifyError`.
 
 ```rust
-use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret};
+use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, ExposeSecret, HashAlgo};
 
 // ConfigBuilder::build() accumulates and reports ALL configuration errors at once
-// (via ConfigErrors), rather than failing on the first problem.
-let config = match ConfigBuilder::new().prefix("sk").build() {
+// (via ConfigErrors), rather than failing on the first problem. (The default
+// keyed HMAC-SHA256 also requires a `.pepper(...)`; omit it to see EmptyPepper.)
+let config = match ConfigBuilder::new().prefix("sk").hash(HashAlgo::Sha256).build() {
     Ok(config) => config,
     Err(config_errors) => {
         // ConfigErrors::errors() returns a slice of every ConfigError that occurred

@@ -6,7 +6,14 @@ use chrono::{Duration, Utc};
 /// Test that a key with future expiry is valid
 #[test]
 fn test_future_expiry_is_valid() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() + Duration::days(7);
 
     let key = manager
@@ -22,7 +29,14 @@ fn test_future_expiry_is_valid() {
 /// Test that a key with past expiry is expired
 #[test]
 fn test_past_expiry_is_expired() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -38,7 +52,14 @@ fn test_past_expiry_is_expired() {
 /// Test that expiry exactly at current time is still valid (<=)
 #[test]
 fn test_expiry_at_current_time() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now();
 
     let key = manager
@@ -56,7 +77,14 @@ fn test_expiry_at_current_time() {
 /// Test that keys without expiry never expire
 #[test]
 fn test_no_expiry_never_expires() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = manager.generate(Environment::production()).unwrap();
 
     // Verify immediately
@@ -69,7 +97,14 @@ fn test_no_expiry_never_expires() {
 /// Test expired key with wrong hash still returns Invalid (not Expired)
 #[test]
 fn test_expired_key_wrong_hash() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let expired_key = manager
@@ -95,6 +130,7 @@ fn test_short_expiry() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),
@@ -124,7 +160,14 @@ fn test_short_expiry() {
 /// Test very long expiry (years)
 #[test]
 fn test_long_expiry() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() + Duration::days(365 * 10); // 10 years
 
     let key = manager
@@ -140,7 +183,14 @@ fn test_long_expiry() {
 /// Test expiry with different environments
 #[test]
 fn test_expiry_across_environments() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let future = Utc::now() + Duration::days(1);
     let past = Utc::now() - Duration::days(1);
 
@@ -186,7 +236,14 @@ fn test_expiry_across_environments() {
 /// Test that expiry is embedded in key and survives hashing
 #[test]
 fn test_expiry_embedded_in_key() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -209,6 +266,7 @@ fn test_expiry_without_checksum() {
     let manager = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .no_checksum()
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -244,7 +302,14 @@ fn test_expiry_without_checksum() {
 /// Test multiple keys with same expiry
 #[test]
 fn test_multiple_keys_same_expiry() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() + Duration::days(30);
 
     let key1 = manager
@@ -289,7 +354,14 @@ fn test_multiple_keys_same_expiry() {
 /// Test that expired keys with valid checksum still return Expired (not Invalid)
 #[test]
 fn test_expired_with_valid_checksum() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() - Duration::days(1);
 
     let key = manager
@@ -306,7 +378,14 @@ fn test_expired_with_valid_checksum() {
 /// Test expiry timestamp encoding/decoding
 #[test]
 fn test_expiry_timestamp_round_trip() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Test various timestamps
     let timestamps = vec![
@@ -364,7 +443,14 @@ fn test_expiry_with_high_security() {
 /// Test that corrupted expiry data returns Invalid (not panic)
 #[test]
 fn test_corrupted_expiry_returns_invalid() {
-    let manager = ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let expiry = Utc::now() + Duration::days(1);
 
     let key = manager
@@ -389,8 +475,14 @@ fn test_corrupted_expiry_returns_invalid() {
 /// Test real-world scenario: trial key lifecycle
 #[test]
 fn test_trial_key_lifecycle() {
-    let manager =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("trial").build().unwrap()).unwrap();
+    let manager = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("trial")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Create 7-day trial key
     let trial_expiry = Utc::now() + Duration::days(7);
@@ -424,9 +516,22 @@ fn test_trial_key_lifecycle() {
 /// Test that expiry works with different key prefixes
 #[test]
 fn test_expiry_with_custom_prefix() {
-    let manager1 = ApiKeyManager::new(ConfigBuilder::new().prefix("api").build().unwrap()).unwrap();
-    let manager2 =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("partner").build().unwrap()).unwrap();
+    let manager1 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("api")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
+    let manager2 = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("partner")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     let expiry = Utc::now() - Duration::hours(1);
 

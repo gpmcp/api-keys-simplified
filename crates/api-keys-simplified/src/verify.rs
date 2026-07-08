@@ -219,7 +219,11 @@ mod tests {
 
     #[test]
     fn valid_key_verifies() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let (generator, hasher, verifier) = parts(cfg);
         let key = generator
             .generate(Environment::Production, None, &hasher)
@@ -234,7 +238,11 @@ mod tests {
 
     #[test]
     fn wrong_key_is_invalid_not_error() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let (generator, hasher, verifier) = parts(cfg);
         let key = generator
             .generate(Environment::Production, None, &hasher)
@@ -248,7 +256,11 @@ mod tests {
 
     #[test]
     fn oversized_key_is_error() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let (_g, _h, verifier) = parts(cfg);
         let huge = SecureString::from("a".repeat(MAX_KEY_LENGTH + 1));
         assert!(matches!(
@@ -259,7 +271,11 @@ mod tests {
 
     #[test]
     fn corrupted_checksum_is_invalid() {
-        let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap();
         let (generator, _h, verifier) = parts(cfg);
         let key = generator.raw_key(Environment::Production, None).unwrap();
         let body = key.expose_secret().rsplit_once('.').unwrap().0;
@@ -275,6 +291,7 @@ mod tests {
         use chrono::{Duration as ChronoDuration, Utc};
         let cfg = ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .grace_period(Duration::ZERO)
             .build()
             .unwrap();

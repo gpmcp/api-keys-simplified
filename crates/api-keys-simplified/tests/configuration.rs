@@ -8,6 +8,7 @@ fn test_custom_entropy() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("sk")
+            .pepper("test-pepper")
             .entropy(16)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -24,6 +25,7 @@ fn test_without_checksum() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("pk")
+            .pepper("test-pepper")
             .no_checksum()
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -59,8 +61,14 @@ fn test_high_security_preset() {
 
 #[test]
 fn test_balanced_preset() {
-    let balanced_gen =
-        ApiKeyManager::new(ConfigBuilder::new().prefix("sk").build().unwrap()).unwrap();
+    let balanced_gen = ApiKeyManager::new(
+        ConfigBuilder::new()
+            .prefix("sk")
+            .pepper("test-pepper")
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
     let key = balanced_gen.generate(Environment::production()).unwrap();
 
     let high_gen =
@@ -101,6 +109,7 @@ fn test_entropy_boundaries() {
     let gen_min = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("min")
+            .pepper("test-pepper")
             .entropy(16)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -114,6 +123,7 @@ fn test_entropy_boundaries() {
     let gen_max = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("max")
+            .pepper("test-pepper")
             .entropy(64)
             .grace_period(std::time::Duration::ZERO)
             .build()
@@ -128,11 +138,13 @@ fn test_entropy_boundaries() {
 fn test_invalid_entropy() {
     assert!(ConfigBuilder::new()
         .prefix("sk")
+        .pepper("test-pepper")
         .entropy(8)
         .build()
         .is_err());
     assert!(ConfigBuilder::new()
         .prefix("sk")
+        .pepper("test-pepper")
         .entropy(128)
         .build()
         .is_err());
