@@ -26,6 +26,7 @@ secrecy.workspace = true
 regex.workspace = true
 chrono.workspace = true
 nom.workspace = true
+tailcall-valid.workspace = true
 
 [features]
 default = []

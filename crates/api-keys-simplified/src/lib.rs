@@ -32,6 +32,12 @@
 //! The checksum uses BLAKE3 (cryptographic hash) for integrity verification.
 
 mod config;
+/// **Proof of concept** — accumulating configuration validation.
+///
+/// Demonstrates the redesigned config layer: a single `ConfigBuilder` that
+/// defers all validation to `build()` and reports every error at once via the
+/// `tailcall-valid` applicative validator. Not yet wired into `ApiKeyManagerV0`.
+pub mod config_v2;
 mod domain;
 mod error;
 mod generator;
