@@ -115,7 +115,14 @@ impl Environment {
     }
 }
 
-/// Separator character for API key components.
+/// Separator character between API key components (prefix, version, env, data).
+///
+/// Note: the checksum/expiry delimiter is always `.` and is independent of this
+/// choice. `Underscore` is safe even though `_` is a base64url character,
+/// because verification never re-splits the key body on the separator — the
+/// token parser only splits on `.` and treats `prefix<sep>[v<n><sep>]env<sep>data`
+/// as one opaque blob. `_` is the dominant industry convention (Stripe, GitHub)
+/// and double-click-selects the whole token cleanly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, Default)]
 pub enum Separator {
     #[strum(serialize = "/")]
@@ -125,6 +132,8 @@ pub enum Separator {
     Dash,
     #[strum(serialize = "~")]
     Tilde,
+    #[strum(serialize = "_")]
+    Underscore,
 }
 
 /// Checksum algorithm used for fast integrity / DoS-protection checks.
@@ -705,8 +714,11 @@ mod tests {
     #[test]
     fn separator_roundtrip() {
         assert_eq!(Separator::from_str("/").unwrap(), Separator::Slash);
+        assert_eq!(Separator::from_str("_").unwrap(), Separator::Underscore);
         assert_eq!(Separator::default(), Separator::Dash);
         let dash: &'static str = Separator::Dash.into();
         assert_eq!(dash, "-");
+        let underscore: &'static str = Separator::Underscore.into();
+        assert_eq!(underscore, "_");
     }
 }

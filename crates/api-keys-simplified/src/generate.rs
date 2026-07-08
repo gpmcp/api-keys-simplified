@@ -281,6 +281,22 @@ mod tests {
     }
 
     #[test]
+    fn underscore_separator_produces_stripe_style_key() {
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .separator(Separator::Underscore)
+            .build()
+            .unwrap();
+        let key = generator(cfg)
+            .raw_key(Environment::Production, None)
+            .unwrap();
+        // e.g. "sk_live_<base64>.<checksum>"
+        assert!(key.expose_secret().starts_with("sk_live_"));
+        // Exactly one '.', for the checksum delimiter (never for the separator).
+        assert_eq!(key.expose_secret().matches('.').count(), 1);
+    }
+
+    #[test]
     fn higher_entropy_yields_longer_key() {
         use crate::shared::secure::SecureStringExt;
         let small = ConfigBuilder::new()

@@ -162,4 +162,24 @@ mod tests {
             .unwrap();
         assert_eq!(rehashed.expose_hash(), key.expose_hash());
     }
+
+    #[test]
+    fn underscore_separator_round_trips_through_verify() {
+        use crate::config::Separator;
+        let m = ApiKeyManager::new(
+            ConfigBuilder::new()
+                .prefix("sk")
+                .separator(Separator::Underscore)
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+        let key = m.generate(Environment::production()).unwrap();
+        assert!(key.key().expose_secret().starts_with("sk_live_"));
+        // The '_' separator must not break parsing/verification.
+        assert_eq!(
+            m.verify(key.key(), key.expose_hash().hash()).unwrap(),
+            KeyStatus::Valid
+        );
+    }
 }
