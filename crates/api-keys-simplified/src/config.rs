@@ -150,15 +150,17 @@ pub struct ChecksumSpec {
     pub length: usize,
 }
 
-/// Validated Argon2 parameters.
+/// Argon2id cost parameters (memory in KiB, iteration count, and lanes).
+///
+/// Only relevant when the chosen [`HashAlgo`] is [`HashAlgo::Argon2id`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HashSpec {
+pub struct Argon2Params {
     pub memory_cost: u32,
     pub time_cost: u32,
     pub parallelism: u32,
 }
 
-impl HashSpec {
+impl Argon2Params {
     /// Balanced preset (OWASP-recommended default): 46 MB, t=1, p=1.
     pub const fn balanced() -> Self {
         Self {
@@ -189,7 +191,7 @@ pub struct ValidatedConfig {
     separator: Separator,
     entropy_bytes: usize,
     checksum: Option<ChecksumSpec>,
-    hash: HashSpec,
+    hash: Argon2Params,
     grace_period: Duration,
 }
 
@@ -209,7 +211,7 @@ impl ValidatedConfig {
     pub fn checksum(&self) -> Option<ChecksumSpec> {
         self.checksum
     }
-    pub fn hash(&self) -> HashSpec {
+    pub fn hash(&self) -> Argon2Params {
         self.hash
     }
     pub fn grace_period(&self) -> Duration {
@@ -311,7 +313,7 @@ pub struct ConfigBuilder {
     checksum_enabled: bool,
     checksum_algo: ChecksumAlgo,
     checksum_length: usize,
-    hash: HashSpec,
+    hash: Argon2Params,
     grace_period: Duration,
 }
 
@@ -325,7 +327,7 @@ impl Default for ConfigBuilder {
             checksum_enabled: true,
             checksum_algo: ChecksumAlgo::Blake3,
             checksum_length: 32,
-            hash: HashSpec::balanced(),
+            hash: Argon2Params::balanced(),
             grace_period: Duration::from_secs(10),
         }
     }
@@ -343,7 +345,7 @@ impl ConfigBuilder {
         Self {
             entropy_bytes: 64,
             checksum_length: 64,
-            hash: HashSpec::high_security(),
+            hash: Argon2Params::high_security(),
             ..Self::default()
         }
     }
@@ -381,7 +383,7 @@ impl ConfigBuilder {
     }
 
     pub fn hash_params(mut self, memory_cost: u32, time_cost: u32, parallelism: u32) -> Self {
-        self.hash = HashSpec {
+        self.hash = Argon2Params {
             memory_cost,
             time_cost,
             parallelism,
@@ -413,7 +415,7 @@ impl ConfigBuilder {
         let hash = validate_hash(self.hash);
 
         // `fuse` appends via the `Append` trait, flattening into a single tuple:
-        // (KeyPrefix, usize, Option<ChecksumSpec>, HashSpec).
+        // (KeyPrefix, usize, Option<ChecksumSpec>, Argon2Params).
         prefix
             .fuse(entropy)
             .fuse(checksum)
@@ -498,7 +500,7 @@ fn validate_checksum(enabled: bool, algo: ChecksumAlgo, length: usize) -> Vc<Opt
     }
 }
 
-fn validate_hash(hash: HashSpec) -> Vc<HashSpec> {
+fn validate_hash(hash: Argon2Params) -> Vc<Argon2Params> {
     // Probe the Argon2 library for parameter validity here, in the config layer,
     // rather than deep inside the hasher.
     match argon2::Params::new(hash.memory_cost, hash.time_cost, hash.parallelism, None) {

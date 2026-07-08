@@ -50,7 +50,7 @@ mod shared;
 mod verify;
 
 pub use config::{
-    ChecksumAlgo, ChecksumSpec, ConfigBuilder, ConfigError, ConfigErrors, Environment, HashSpec,
+    ChecksumAlgo, ChecksumSpec, ConfigBuilder, ConfigError, ConfigErrors, Environment, Argon2Params,
     KeyPrefix, KeyVersion, Separator, ValidatedConfig,
 };
 pub use generate::{ApiKey, GenerateError, Hash, NoHash};

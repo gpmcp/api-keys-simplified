@@ -3,7 +3,7 @@ use argon2::{
     Argon2, Params, Version,
 };
 
-use crate::config::HashSpec;
+use crate::config::Argon2Params;
 use crate::shared::secure::{ExposeSecret, SecureString};
 
 /// Error produced by the shared hashing primitive.
@@ -24,11 +24,11 @@ type Result<T> = std::result::Result<T, HashError>;
 
 #[derive(Clone)]
 pub struct KeyHasher {
-    config: HashSpec,
+    config: Argon2Params,
 }
 
 impl KeyHasher {
-    pub fn new(config: HashSpec) -> Self {
+    pub fn new(config: Argon2Params) -> Self {
         Self { config }
     }
 
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_hashing() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = HashSpec::balanced();
+        let config = Argon2Params::balanced();
         let hasher = KeyHasher::new(config);
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
@@ -230,10 +230,10 @@ mod tests {
     fn test_different_configs() {
         let key = SecureString::from("test_key".to_string());
 
-        let balanced_hasher = KeyHasher::new(HashSpec::balanced());
+        let balanced_hasher = KeyHasher::new(Argon2Params::balanced());
         let (_key_id1, balanced_hash) = balanced_hasher.hash(&key).unwrap();
 
-        let secure_hasher = KeyHasher::new(HashSpec::high_security());
+        let secure_hasher = KeyHasher::new(Argon2Params::high_security());
         let (_key_id2, secure_hash) = secure_hasher.hash(&key).unwrap();
 
         assert!(!balanced_hash.is_empty());
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn test_hash_with_same_salt() {
         let key = SecureString::from("sk_test_abc123xyz789".to_string());
-        let config = HashSpec::balanced();
+        let config = Argon2Params::balanced();
         let hasher = KeyHasher::new(config);
 
         // Get a PHC hash from the first hash
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_key_id_properties() {
-        let hasher = KeyHasher::new(HashSpec::balanced());
+        let hasher = KeyHasher::new(Argon2Params::balanced());
         let key1 = SecureString::from("sk-live-key1".to_string());
         let key2 = SecureString::from("sk-live-key2".to_string());
 
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn test_key_id_stability_with_hashing() {
         let key = SecureString::from("sk-live-test".to_string());
-        let hasher = KeyHasher::new(HashSpec::balanced());
+        let hasher = KeyHasher::new(Argon2Params::balanced());
 
         let (key_id1, hash1) = hasher.hash(&key).unwrap();
         let (key_id2, hash2) = hasher.hash(&key).unwrap();
