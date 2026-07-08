@@ -210,11 +210,8 @@ mod tests {
         // produced for a real key (different, fake entropy).
         let real = m.generate(Environment::production()).unwrap();
         assert_eq!(
-            m.verify(
-                &SecureString::from(example),
-                real.expose_hash().hash()
-            )
-            .unwrap(),
+            m.verify(&SecureString::from(example), real.expose_hash().hash())
+                .unwrap(),
             KeyStatus::Invalid
         );
     }

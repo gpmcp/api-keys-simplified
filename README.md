@@ -18,6 +18,8 @@ A secure Rust library for generating and validating API keys with built-in secur
 - **Automatic memory zeroing** (protects sensitive data)
 - **Key expiration** (time-based access control)
 - **Key revocation** (instant access denial via stored hash)
+- **Configurable token format** — separator (`-` `_` `/` `~`), custom/optional
+  environment, checksum length in bits, and an `example_key()` preview
 
 ## Quick Example
 
