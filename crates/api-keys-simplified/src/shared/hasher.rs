@@ -166,9 +166,7 @@ impl KeyHasher {
     ///
     /// Uses constant-time comparison for the digest algorithms; Argon2's verifier
     /// is constant-time internally.
-    pub(crate) fn verify(&self, key: &SecureString, stored_hash: &str) -> bool {
-        let key_bytes = key.expose_secret().as_bytes();
-
+    pub(crate) fn verify_key(&self, key_bytes: &[u8], stored_hash: &str) -> bool {
         if let Some(hex) = stored_hash.strip_prefix("sha256$") {
             let computed = hex_sha256(key_bytes);
             return ct_eq_str(&computed, hex);
@@ -196,6 +194,11 @@ impl KeyHasher {
 
         // Unknown/malformed stored-hash tag.
         false
+    }
+
+    /// Convenience wrapper over [`KeyHasher::verify_key`] taking a [`SecureString`].
+    pub(crate) fn verify(&self, key: &SecureString, stored_hash: &str) -> bool {
+        self.verify_key(key.expose_secret().as_bytes(), stored_hash)
     }
 
     /// Performs dummy hashing/verification work matching the configured algorithm

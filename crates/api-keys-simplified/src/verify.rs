@@ -9,23 +9,20 @@
 //!
 //! ## Security flow
 //! 1. **Checksum** (if enabled): reject malformed keys in ~microseconds.
-//! 2. **Argon2 verify**: constant-time password check (~hundreds of ms).
+//! 2. **Hash verify**: dispatched by [`KeyHasher`] on the stored hash's tag
+//!    (constant-time; Argon2 is ~hundreds of ms, SHA-256/HMAC are ~microseconds).
 //! 3. **Expiry**: reject keys expired beyond the grace period.
 //!
-//! Timing-oracle protection: a dummy key + dummy hash drive Argon2 work even on
+//! Timing-oracle protection: a dummy key + dummy hash drive hashing work even on
 //! early rejections, so all failure paths take similar time.
 
 use std::time::Duration;
 
-use argon2::{
-    password_hash::{PasswordHash, PasswordVerifier},
-    Argon2,
-};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use password_hash::PasswordHashString;
 
 use crate::config::{ChecksumSpec, ValidatedConfig};
 use crate::shared::checksum::Checksummer;
+use crate::shared::hasher::KeyHasher;
 use crate::shared::secure::{ExposeSecret, SecureString};
 use crate::shared::token_parser::{parse_token, Parts};
 use crate::shared::{MAX_HASH_LENGTH, MAX_KEY_LENGTH};
@@ -52,13 +49,16 @@ pub enum VerifyError {
 
 type Result<T> = std::result::Result<T, VerifyError>;
 
-/// Verifies presented keys against stored Argon2 hashes.
+/// Verifies presented keys against stored hashes.
 #[derive(Clone)]
 pub struct Verifier {
     checksum: Option<ChecksumSpec>,
     grace_period: Duration,
-    /// Dummy hash for timing-attack protection on early-rejection paths.
-    dummy_hash: PasswordHashString,
+    /// Hasher used to verify stored hashes; dispatches on the stored hash's tag.
+    hasher: KeyHasher,
+    /// Dummy stored-hash string for timing-attack protection on early-rejection
+    /// paths (produced by `hasher` for `dummy_key`).
+    dummy_hash: String,
     /// Dummy key that pairs with `dummy_hash`.
     dummy_key: SecureString,
 }
@@ -67,14 +67,11 @@ impl Verifier {
     /// Build a verifier from validated config plus a dummy key/hash pair
     /// (constructed once by the manager for timing protection).
     pub fn new(config: &ValidatedConfig, dummy_key: SecureString, dummy_hash: &str) -> Self {
-        // The dummy hash is produced internally from a valid Argon2 hash, so this
-        // parse cannot realistically fail; fall back to a re-hash-safe expect.
-        let dummy_hash =
-            PasswordHashString::new(dummy_hash).expect("internal dummy hash must be valid PHC");
         Self {
             checksum: config.checksum(),
             grace_period: config.grace_period(),
-            dummy_hash,
+            hasher: KeyHasher::new(config.hash().clone()),
+            dummy_hash: dummy_hash.to_string(),
             dummy_key,
         }
     }
@@ -147,30 +144,21 @@ impl Verifier {
             }
         };
 
-        // Parse the stored hash; on failure, do dummy work to keep timing flat
-        // (prevents user-enumeration via "invalid hash format" timing).
-        let parsed_hash = match PasswordHash::new(stored_hash) {
-            Ok(h) => h,
-            Err(_) => {
-                self.dummy_load();
-                return Ok(KeyStatus::Invalid);
-            }
-        };
-
-        let argon_ok = Argon2::default()
-            .verify_password(provided_key.as_bytes(), &parsed_hash)
-            .is_ok();
-        let argon_status = if argon_ok {
+        // Verify the key against the stored hash. `KeyHasher::verify` dispatches
+        // on the stored hash's tag (sha256$/hmac-sha256$/$argon2id$) and uses a
+        // constant-time comparison; a malformed/unknown tag returns false.
+        let hash_ok = self.hasher.verify_key(provided_key.as_bytes(), stored_hash);
+        let hash_status = if hash_ok {
             KeyStatus::Valid
         } else {
             KeyStatus::Invalid
         };
 
-        // SECURITY: force the expiry check to run regardless of argon result so
-        // the compiler can't short-circuit it into a timing oracle.
+        // SECURITY: force the expiry check to run regardless of the hash result
+        // so the compiler can't short-circuit it into a timing oracle.
         let expiry_status = self.verify_expiry(token_parts)?;
 
-        match (argon_status, expiry_status) {
+        match (hash_status, expiry_status) {
             (KeyStatus::Valid, KeyStatus::Valid) => Ok(KeyStatus::Valid),
             _ => Ok(KeyStatus::Invalid),
         }
@@ -202,13 +190,12 @@ impl Verifier {
         }
     }
 
-    /// Dummy Argon2 verification to match the timing of a real verify.
+    /// Dummy verification to match the timing of a real verify, using the same
+    /// configured algorithm against the internal dummy key/hash pair.
     fn dummy_load(&self) {
         let dummy_bytes = self.dummy_key.expose_secret().as_bytes();
         parse_token(dummy_bytes, self.has_checksum()).ok();
-        Argon2::default()
-            .verify_password(dummy_bytes, &self.dummy_hash.password_hash())
-            .ok();
+        self.hasher.dummy_verify(&self.dummy_key, &self.dummy_hash);
     }
 }
 

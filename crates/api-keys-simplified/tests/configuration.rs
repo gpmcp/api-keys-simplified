@@ -1,4 +1,6 @@
-use api_keys_simplified::{ApiKeyManager, ConfigBuilder, Environment, KeyStatus};
+use api_keys_simplified::{
+    ApiKeyManager, Argon2Params, ConfigBuilder, Environment, HashAlgo, KeyStatus,
+};
 use api_keys_simplified::{ExposeSecret, SecureStringExt};
 
 #[test]
@@ -73,7 +75,11 @@ fn test_custom_hash_config() {
     let generator = ApiKeyManager::new(
         ConfigBuilder::new()
             .prefix("text")
-            .hash_params(8192, 1, 1)
+            .hash(HashAlgo::Argon2id(Argon2Params {
+                memory_cost: 8192,
+                time_cost: 1,
+                parallelism: 1,
+            }))
             .grace_period(std::time::Duration::ZERO)
             .build()
             .unwrap(),

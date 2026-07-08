@@ -208,18 +208,6 @@ pub enum HashAlgo {
     Argon2id(Argon2Params),
 }
 
-impl HashAlgo {
-    /// Stable tag identifying this algorithm. Also the prefix embedded in the
-    /// stored-hash string so verification can dispatch without external state.
-    pub(crate) fn tag(&self) -> &'static str {
-        match self {
-            HashAlgo::Sha256 => "sha256",
-            HashAlgo::HmacSha256 { .. } => "hmac-sha256",
-            HashAlgo::Argon2id(_) => "argon2id",
-        }
-    }
-}
-
 impl std::fmt::Debug for HashAlgo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // SECURITY: never print the pepper.
