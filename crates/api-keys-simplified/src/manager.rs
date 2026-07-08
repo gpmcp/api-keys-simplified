@@ -96,13 +96,6 @@ impl ApiKeyManager {
         self.hasher.generate_key_id(key)
     }
 
-    /// Produce a **non-secret**, correctly-shaped sample token for previews /
-    /// documentation. Uses fixed dummy entropy, never the CSPRNG, and does not
-    /// hash — the result is not a valid, verifiable key. For display only.
-    pub fn example_key(&self, environment: impl Into<Environment>) -> String {
-        self.generator.example_key(environment.into())
-    }
-
     /// The internal hasher, exposed for advanced deterministic-rehash workflows.
     pub fn hasher(&self) -> &KeyHasher {
         &self.hasher
@@ -198,21 +191,6 @@ mod tests {
         assert_eq!(
             m.verify(key.key(), key.expose_hash().hash()).unwrap(),
             KeyStatus::Valid
-        );
-    }
-
-    #[test]
-    fn example_key_is_non_secret_and_not_verifiable() {
-        let m = manager();
-        let example = m.example_key(Environment::production());
-        assert!(example.starts_with("sk-live-"));
-        // It is deliberately NOT a real key: it must not verify against any hash
-        // produced for a real key (different, fake entropy).
-        let real = m.generate(Environment::production()).unwrap();
-        assert_eq!(
-            m.verify(&SecureString::from(example), real.expose_hash().hash())
-                .unwrap(),
-            KeyStatus::Invalid
         );
     }
 

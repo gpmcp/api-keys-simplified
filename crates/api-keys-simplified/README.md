@@ -18,8 +18,7 @@ A secure, Rust library for generating and validating API keys with built-in secu
 - **Expire** keys automatically based on embedded timestamps
 - **Revoke** keys instantly by marking hashes as invalid
 - **Shape** the token to your brand — choose the separator (`-` `_` `/` `~`),
-  a custom or omitted environment segment, and a checksum length in bits;
-  preview the format with `example_key()` before shipping
+  a custom or omitted environment segment, and a checksum length in bits
 
 ## Token format
 
@@ -27,18 +26,13 @@ Keys are laid out as `prefix<sep>[v<n><sep>]env<sep>data[.expiry][.checksum]`.
 Every part is configurable on the builder:
 
 ```rust
-use api_keys_simplified::{ConfigBuilder, Separator, Environment, ChecksumAlgo, ChecksumBits};
+use api_keys_simplified::{ConfigBuilder, Separator, ChecksumAlgo, ChecksumBits};
 
 let config = ConfigBuilder::new()
     .prefix("sk")
     .separator(Separator::Underscore)          // sk_live_...  (Stripe/GitHub style)
     .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(128))  // length in BITS
     .build()?;
-
-// Preview the exact shape (non-secret, fake entropy) before committing:
-// let manager = ApiKeyManager::new(config)?;
-// println!("{}", manager.example_key(Environment::production()));
-// -> sk_live_<32-char-base64-data>.<checksum>
 
 // Fold the environment into the prefix instead of a separate segment:
 let config = ConfigBuilder::new().prefix("sk").no_environment().build()?;
