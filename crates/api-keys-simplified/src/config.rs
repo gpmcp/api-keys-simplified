@@ -187,7 +187,35 @@ impl KeyPrefix {
     }
 }
 
+/// A checksum length expressed in **bits** (the unit developers reason about).
+///
+/// Internally the BLAKE3 checksum is emitted as hex, where 1 hex char = 4 bits,
+/// so the bit count must be a multiple of 4. Use [`ChecksumBits::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChecksumBits(usize);
+
+impl ChecksumBits {
+    /// Create a checksum length in bits (must be a multiple of 4). Validation of
+    /// the allowed range happens in [`ConfigBuilder::build`].
+    pub const fn new(bits: usize) -> Self {
+        ChecksumBits(bits)
+    }
+
+    /// The length in bits.
+    pub const fn bits(&self) -> usize {
+        self.0
+    }
+
+    /// The corresponding number of hex characters (`bits / 4`).
+    pub const fn hex_len(&self) -> usize {
+        self.0 / 4
+    }
+}
+
 /// A validated checksum specification (algorithm + output length in hex chars).
+///
+/// `length` is stored in hex characters (the unit the generator/verifier use);
+/// the public API accepts [`ChecksumBits`] and converts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChecksumSpec {
     pub algo: ChecksumAlgo,
@@ -340,11 +368,14 @@ pub enum ConfigError {
     #[error("entropy cannot exceed 64 bytes (512 bits)")]
     EntropyTooHigh,
 
-    #[error("BLAKE3 checksum length must be at least 32")]
+    #[error("BLAKE3 checksum length must be at least 128 bits")]
     ChecksumLenTooSmall,
 
-    #[error("BLAKE3 checksum length must be at most 64")]
+    #[error("BLAKE3 checksum length must be at most 256 bits")]
     ChecksumLenTooLarge,
+
+    #[error("checksum length (bits) must be a multiple of 4")]
+    ChecksumBitsNotMultipleOf4,
 
     #[error("invalid Argon2 parameters")]
     InvalidHashParams,
@@ -403,7 +434,7 @@ pub struct ConfigBuilder {
     entropy_bytes: usize,
     checksum_enabled: bool,
     checksum_algo: ChecksumAlgo,
-    checksum_length: usize,
+    checksum_bits: usize,
     hash: HashAlgo,
     grace_period: Duration,
 }
@@ -418,7 +449,7 @@ impl Default for ConfigBuilder {
             entropy_bytes: 24,
             checksum_enabled: true,
             checksum_algo: ChecksumAlgo::Blake3,
-            checksum_length: 32,
+            checksum_bits: 128, // 32 hex chars
             // Default: fast SHA-256. API keys are high-entropy (>=128-bit)
             // random values, for which NIST SP 800-63B permits an approved fast
             // hash; the slow memory-hard hashers are only required for
@@ -442,7 +473,7 @@ impl ConfigBuilder {
     pub fn high_security() -> Self {
         Self {
             entropy_bytes: 64,
-            checksum_length: 64,
+            checksum_bits: 256, // 64 hex chars
             hash: HashAlgo::Argon2id(Argon2Params::high_security()),
             ..Self::default()
         }
@@ -479,10 +510,13 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn checksum(mut self, algo: ChecksumAlgo, length: usize) -> Self {
+    /// Enable a checksum of the given algorithm and length (in **bits**).
+    ///
+    /// For BLAKE3 the valid range is 128-256 bits, in multiples of 4.
+    pub fn checksum(mut self, algo: ChecksumAlgo, bits: ChecksumBits) -> Self {
         self.checksum_enabled = true;
         self.checksum_algo = algo;
-        self.checksum_length = length;
+        self.checksum_bits = bits.bits();
         self
     }
 
@@ -520,7 +554,7 @@ impl ConfigBuilder {
         let checksum = validate_checksum(
             self.checksum_enabled,
             self.checksum_algo,
-            self.checksum_length,
+            self.checksum_bits,
         );
         let hash = validate_hash(self.hash);
 
@@ -593,19 +627,29 @@ fn validate_entropy(bytes: usize) -> Vc<usize> {
     }
 }
 
-fn validate_checksum(enabled: bool, algo: ChecksumAlgo, length: usize) -> Vc<Option<ChecksumSpec>> {
+fn validate_checksum(enabled: bool, algo: ChecksumAlgo, bits: usize) -> Vc<Option<ChecksumSpec>> {
     if !enabled {
         return Valid::succeed(None);
     }
 
+    // Hex encoding emits one char per 4 bits, so the length must be a whole
+    // number of hex chars.
+    if !bits.is_multiple_of(4) {
+        return Valid::fail(ConfigError::ChecksumBitsNotMultipleOf4).trace("checksum");
+    }
+
     match algo {
         ChecksumAlgo::Blake3 => {
-            if length < 32 {
+            // 128-256 bits == 32-64 hex chars.
+            if bits < 128 {
                 Valid::fail(ConfigError::ChecksumLenTooSmall).trace("checksum")
-            } else if length > 64 {
+            } else if bits > 256 {
                 Valid::fail(ConfigError::ChecksumLenTooLarge).trace("checksum")
             } else {
-                Valid::succeed(Some(ChecksumSpec { algo, length }))
+                Valid::succeed(Some(ChecksumSpec {
+                    algo,
+                    length: bits / 4,
+                }))
             }
         }
     }
@@ -651,8 +695,52 @@ mod tests {
         let cfg = ConfigBuilder::new().prefix("sk").build().unwrap();
         assert_eq!(cfg.prefix().as_str(), "sk");
         assert_eq!(cfg.entropy_bytes(), 24);
+        // Default checksum is 128 bits == 32 hex chars.
         assert_eq!(cfg.checksum().unwrap().length, 32);
         assert_eq!(cfg.version(), KeyVersion::NONE);
+    }
+
+    #[test]
+    fn checksum_bits_convert_and_validate() {
+        // bits -> hex chars conversion.
+        assert_eq!(ChecksumBits::new(128).hex_len(), 32);
+        assert_eq!(ChecksumBits::new(256).hex_len(), 64);
+
+        // A custom in-range value round-trips to hex chars in the spec.
+        let cfg = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(160))
+            .build()
+            .unwrap();
+        assert_eq!(cfg.checksum().unwrap().length, 40); // 160 / 4
+
+        // Out-of-range and non-multiple-of-4 are rejected with clear errors.
+        let too_small = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(64))
+            .build()
+            .unwrap_err();
+        assert!(too_small
+            .errors()
+            .contains(&ConfigError::ChecksumLenTooSmall));
+
+        let too_large = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(512))
+            .build()
+            .unwrap_err();
+        assert!(too_large
+            .errors()
+            .contains(&ConfigError::ChecksumLenTooLarge));
+
+        let not_mult4 = ConfigBuilder::new()
+            .prefix("sk")
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(130))
+            .build()
+            .unwrap_err();
+        assert!(not_mult4
+            .errors()
+            .contains(&ConfigError::ChecksumBitsNotMultipleOf4));
     }
 
     #[test]
@@ -676,7 +764,7 @@ mod tests {
         let err = ConfigBuilder::new()
             .prefix("bad prefix")
             .entropy(4)
-            .checksum(ChecksumAlgo::Blake3, 8)
+            .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(8))
             .hash(HashAlgo::Argon2id(Argon2Params {
                 memory_cost: 0,
                 time_cost: 0,

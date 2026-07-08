@@ -5,8 +5,8 @@
 //! self-describing stored-hash format lets a database mix algorithms.
 
 use api_keys_simplified::{
-    ApiKeyManager, Argon2Params, ChecksumAlgo, ConfigBuilder, Environment, ExposeSecret, HashAlgo,
-    KeyStatus, SecureString, ValidatedConfig,
+    ApiKeyManager, Argon2Params, ChecksumAlgo, ChecksumBits, ConfigBuilder, Environment,
+    ExposeSecret, HashAlgo, KeyStatus, SecureString, ValidatedConfig,
 };
 
 fn manager(algo: HashAlgo) -> ApiKeyManager {
@@ -123,7 +123,7 @@ fn checksum_prefilter_works_with_fast_hash() {
     let cfg = ConfigBuilder::new()
         .prefix("sk")
         .hash(HashAlgo::Sha256)
-        .checksum(ChecksumAlgo::Blake3, 32)
+        .checksum(ChecksumAlgo::Blake3, ChecksumBits::new(128))
         .build()
         .unwrap();
     let m = ApiKeyManager::new(cfg).unwrap();
